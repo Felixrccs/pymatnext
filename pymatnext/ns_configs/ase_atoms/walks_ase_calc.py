@@ -34,9 +34,28 @@ def walk_pos_gmc(ns_atoms, Emax, rng):
     # store orig position in case move is rejected
     atoms.prev_positions[...] = atoms.positions
     n_failed_in_a_row = 0
+
+    # consider fixed atoms
+    moving = np.broadcast_to(atoms.get_tags()[:,None],(len(atoms),3))
     for i_step in range(ns_atoms.walk_traj_len["gmc"]):
         # step and evaluate new energy, forces
-        atoms.positions += atoms.arrays["NS_velocities"]
+        atoms.positions += atoms.arrays["NS_velocities"]*moving
+        # inclusion of limits by instering reflective walls at the lower and the higher limits
+        if ns_atoms.limit != {}:
+            tmp = atoms.get_scaled_positions(wrap=False)
+            for k, val  in enumerate(['x','y','z']):
+                if val in ns_atoms.limit.keys():
+                    if (np.min(tmp[:,2])<=ns_atoms.limit[val][0] or np.max(tmp[:,2])>=ns_atoms.limit[val][1]):
+                        # mirror of velocities
+                        change = np.where(tmp[:,k]<=ns_atoms.limit[val][0], -2, 0) + np.where(tmp[:,k]<=ns_atoms.limit[val][1], 0, -2) + 1
+                        atoms.arrays["NS_velocities"][:,k] *=change
+                        # mirror of positions
+                        while (np.min(tmp[:,k])<=ns_atoms.limit[val][0] or np.max(tmp[:,k])>=ns_atoms.limit[val][1]):
+                            tmp[:,k] = np.where(tmp[:,k] <= ns_atoms.limit[val][0], k*ns_atoms.limit[val][0] -tmp[:,k], tmp[:,k])
+                            tmp[:,k] = np.where(tmp[:,k] <= ns_atoms.limit[val][1], tmp[:,k], 2*ns_atoms.limit[val][1] -tmp[:,k])
+                        atoms.set_scaled_positions(atoms.get_scaled_positions(wrap=False)*(1.-moving)+ tmp*moving)
+
+
         atoms.calc.calculate(atoms, properties=["free_energy", "forces"], system_changes=all_changes)
         E = atoms.calc.results.get("free_energy", atoms.calc.results.get("energy"))
         F = atoms.calc.results["forces"]

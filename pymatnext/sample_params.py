@@ -9,8 +9,8 @@ param_defaults = {
         "max_iter": -1,
         "stdout_report_interval_s": 60,
         "sample_interval": 1,
-        "traj_interval": 100,
-        "snapshot_interval": 10000,
+        "traj_interval": 1,
+        "snapshot_interval": 500,
         "step_size_tune": {
             "interval": 1000,
             "n_configs": 1,

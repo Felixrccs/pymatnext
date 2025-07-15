@@ -6,6 +6,7 @@ from copy import deepcopy
 import collections
 import json
 
+import ase.visualize
 import numpy as np
 
 import ase.data
@@ -127,6 +128,7 @@ class NSConfig_ASE_Atoms():
         if len(full_composition) == 0:
             full_composition = params["composition"]
         cls._Zs, _ = cls._parse_composition(full_composition)
+        
 
         # NS quantity = internal energy + P V - \sum_i \mu_i N_i
         # cell volume
@@ -135,7 +137,7 @@ class NSConfig_ASE_Atoms():
         cls.n_quantities = 3 + (len(cls._Zs) if len(cls._Zs) > 1 else 0)
 
 
-    def __init__(self, params, compression=np.inf, source="random", rng=None, kB=ase.units.kB, allocate_only=False):
+    def __init__(self, params, compression=np.inf, source="random", seed_config=None, rng=None, kB=ase.units.kB, allocate_only=False):
         check_fill_defaults(params, param_defaults_ase_atoms, label="configs")
 
         if len(self._Zs) == 0:
@@ -163,6 +165,7 @@ class NSConfig_ASE_Atoms():
             n_atoms = params["n_atoms"]
             n_dims = params["dims"]
             pbc = params["pbc"]
+            initial_limits = np.array([[0,1],[0,1],[0.19,0.8]])
             initial_rand_min_dist = params["initial_rand_min_dist"]
             initial_rand_n_tries = params["initial_rand_n_tries"]
 
@@ -188,6 +191,8 @@ class NSConfig_ASE_Atoms():
             # create cell
             if allocate_only:
                 cell = np.eye(3)
+            elif isinstance(seed_config, Atoms):
+                cell = seed_config.cell
             else:
                 cell = [(initial_rand_vol_per_atom * n_atoms) ** (1.0 / n_dims)] * n_dims + [0.0] * (3-n_dims)
                 # perturb slightly
@@ -204,15 +209,30 @@ class NSConfig_ASE_Atoms():
                 scaled_positions = np.zeros((n_atoms, 3))
             else:
                 scaled_positions = rng.uniform(size=(n_atoms, 3))
+                if isinstance(initial_limits,np.ndarray):
+                    rescale = [initial_limits[0,1]-initial_limits[0,0], initial_limits[1,1]-initial_limits[1,0], initial_limits[2,1]-initial_limits[2,0]]
+                    delta = [initial_limits[0,0], initial_limits[1,0], initial_limits[2,0]]
+                    scaled_positions = scaled_positions*rescale + delta
 
-            # create Atoms object
-            self.atoms = AtomsContiguousStorage(numbers=numbers, cell=cell, scaled_positions=scaled_positions, pbc=pbc)
+            
+
+            # create Atoms object or extend seed_config
+            if isinstance(seed_config, Atoms):
+                tmp = deepcopy(seed_config)
+                tmp.extend(Atoms(numbers=numbers, cell=cell, scaled_positions=scaled_positions, pbc=pbc,tags=np.ones(n_atoms)))
+                self.atoms = AtomsContiguousStorage(tmp)
+            else:
+                self.atoms = AtomsContiguousStorage(numbers=numbers, cell=cell, scaled_positions=scaled_positions, pbc=pbc)
 
             if not allocate_only and initial_rand_min_dist is not None:
                 d = neighbor_list('d', self.atoms, cutoff = initial_rand_min_dist, self_interaction = False)
                 i_iter = 0
                 while len(d) > 0 and i_iter < initial_rand_n_tries:
-                    self.atoms.set_scaled_positions(rng.uniform(size=((n_atoms, 3))))
+                    if isinstance(seed_config,Atoms):
+                        tmp_pos = self.atoms.get_positions()
+                        tmp_pos[len(seed_config):] = rng.uniform(size=((n_atoms, 3)))
+                    else:
+                       self.atoms.set_scaled_positions(rng.uniform(size=((n_atoms, 3))))
                     d = neighbor_list('d', self.atoms, cutoff = initial_rand_min_dist, self_interaction = False)
                     i_iter += 1
                 if i_iter > 0:
@@ -443,6 +463,9 @@ class NSConfig_ASE_Atoms():
         assert set(list(self.step_size.keys())) == set(self._step_size_params)
         # default to half the max for each type
         self.step_size = {k: (v if v >= 0.0 else self.max_step_size[k] / 2.0) for k, v in self.step_size.items()}
+
+        # store limits
+        self.limit = params['gmc_limit']
 
         # store function pointers for moves
         self.walk_func = {}
@@ -796,6 +819,11 @@ class NSConfig_ASE_Atoms():
             # source specified in params
             configs_file = params_configs.pop("file", None)
 
+        seed_config = params_configs.pop("seed_config", None)
+        if isinstance(seed_config,str):
+            seed_config = ase.io.read(seed_config)
+            seed_config.set_tags(np.zeros(len(seed_config)))
+
         if configs_file is not None:
             def new_configs_generator_file():
                 with open(configs_file) as fin:
@@ -811,6 +839,6 @@ class NSConfig_ASE_Atoms():
             def new_configs_generator_random():
                 for i in range(n_configs):
                     yield cls(params_configs, rng=rng,
-                                        compression=n_configs / (n_configs + 1))
+                                        compression=n_configs / (n_configs + 1),seed_config=seed_config)
 
             return new_configs_generator_random

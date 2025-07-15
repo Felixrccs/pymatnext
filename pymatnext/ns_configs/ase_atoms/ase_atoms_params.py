@@ -3,13 +3,14 @@
 
 param_defaults_ase_atoms = {
     "full_composition": "",
+    "seed_config": "_IGNORE_",
     "composition": ["_REQ_", "AbCdE2"],
     "n_atoms": ["_REQ_", 1],
     "dims": 3,
     "pbc": [True, True, True],
     "initial_rand_vol_per_atom": ["_REQ_", 1.0],
     "initial_rand_min_dist": ["_REQ_", 1.0],
-    "initial_rand_n_tries": 10,
+    "initial_rand_n_tries": 100,
     "calculator": {
         "type": ["_REQ_", "calc_type"],
         "args": { "_IGNORE_": True }
@@ -19,12 +20,14 @@ param_defaults_ase_atoms = {
 
 param_defaults_walk = {
     "gmc_traj_len": 8,
-    "cell_traj_len": 8,
-    "type_traj_len": 8,
+    "cell_traj_len": 1,
+    "type_traj_len": 1,
 
-    "gmc_proportion": 0.0,
+    "gmc_proportion": 1.0,
     "cell_proportion": 0.0,
     "type_proportion": 0.0,
+
+    "gmc_limit": { "_IGNORE_": True },
 
     "max_step_size": {
         "pos_gmc_each_atom": -0.1,

@@ -10,6 +10,7 @@ import pprint
 import itertools
 import json
 import traceback
+import random
 
 from argparse import ArgumentParser
 
@@ -37,16 +38,23 @@ def init_MPI():
             raise Exception("Got PYMATNEXT_NO_MPI")
 
         from mpi4py import MPI
-        warnings.warn(f"{MPI.COMM_WORLD.rank} Using real MPI size={MPI.COMM_WORLD.size}")
+
+        warnings.warn(
+            f"{MPI.COMM_WORLD.rank} Using real MPI size={MPI.COMM_WORLD.size}"
+        )
+
         # from https://stackoverflow.com/questions/49868333/fail-fast-with-mpi4py
         def mpiabort_excepthook(type, value, traceback_obj):
-            sys.stderr.write(f"{MPI.COMM_WORLD.rank} Aborting because of exception {value}\n")
+            sys.stderr.write(
+                f"{MPI.COMM_WORLD.rank} Aborting because of exception {value}\n"
+            )
             for line in traceback.format_tb(traceback_obj):
                 for line_split in line.splitlines():
                     sys.stderr.write(f"{MPI.COMM_WORLD.rank} {line_split.rstrip()}\n")
             sys.stderr.flush()
             MPI.COMM_WORLD.Abort()
             sys.__excepthook__(type, value, traceback_obj)
+
         sys.excepthook = mpiabort_excepthook
     except Exception as exc:
         warnings.warn(f"0 No MPI ({exc}), using sample_utils.MPI")
@@ -71,11 +79,23 @@ def parse_args(args_list=None):
     """
 
     parser = ArgumentParser()
-    parser.add_argument("--override_param", "-o", nargs=2, action="append", help="override a parameter, specified by xpath "
-                                                                                 "notation, e.g. /global/random_seed or "
-                                                                                 "/global/otput_filename_prefix_extra", default=[])
-    parser.add_argument("--restart_diff_nproc", "-d", action="store_true", help="allow restarts to use a different number of "
-                                                                                "processors than previous partial run")
+    parser.add_argument(
+        "--override_param",
+        "-o",
+        nargs=2,
+        action="append",
+        help="override a parameter, specified by xpath "
+        "notation, e.g. /global/random_seed or "
+        "/global/otput_filename_prefix_extra",
+        default=[],
+    )
+    parser.add_argument(
+        "--restart_diff_nproc",
+        "-d",
+        action="store_true",
+        help="allow restarts to use a different number of "
+        "processors than previous partial run",
+    )
     parser.add_argument("input", help="input parameters toml file")
     args = parser.parse_args(args_list)
 
@@ -107,6 +127,10 @@ def sample(args, MPI, NS_comm, walker_comm):
         params = None
     params = NS_comm.bcast(params, root=0)
     check_fill_defaults(params, param_defaults)
+    # random seed generation
+    if params["global"]["random_seed"] == -1:
+        params["global"]["random_seed"] = random.randint(1, 10000)
+    print(params)
 
     # override with command line arguments
     for arg_name, arg_val in args.override_param:
@@ -119,7 +143,9 @@ def sample(args, MPI, NS_comm, walker_comm):
         arg_name_final = arg_name_components[-1]
 
         if arg_name_final not in cur_param_dict:
-            raise ValueError(f"Failed to find final override param path component {arg_name_final} in params file dict {cur_param_dict}")
+            raise ValueError(
+                f"Failed to find final override param path component {arg_name_final} in params file dict {cur_param_dict}"
+            )
 
         if isinstance(cur_param_dict[arg_name_final], bool):
             if arg_val.lower() in ["t", "true"]:
@@ -127,7 +153,9 @@ def sample(args, MPI, NS_comm, walker_comm):
             elif arg_val.lower() in ["f", "false"]:
                 cur_param_dict[arg_name_final] = False
             else:
-                raise ValueError("Unknown value {arg_val} for overriding bool param {arg_name}")
+                raise ValueError(
+                    "Unknown value {arg_val} for overriding bool param {arg_name}"
+                )
         elif isinstance(cur_param_dict[arg_name_final], int):
             cur_param_dict[arg_name_final] = int(arg_val)
         elif isinstance(cur_param_dict[arg_name_final], float):
@@ -135,18 +163,33 @@ def sample(args, MPI, NS_comm, walker_comm):
         elif isinstance(cur_param_dict[arg_name_final], str):
             cur_param_dict[arg_name_final] = arg_val
         else:
-            raise ValueError(f"Can't override param of type {type(cur_param_dict[arg_name_final])}") 
+            raise ValueError(
+                f"Can't override param of type {type(cur_param_dict[arg_name_final])}"
+            )
         if NS_comm.rank == 0:
-            warnings.warn(f"Overridden params file {arg_name} with {cur_param_dict[arg_name_final]}")
+            warnings.warn(
+                f"Overridden params file {arg_name} with {cur_param_dict[arg_name_final]}"
+            )
 
     params_global = params["global"]
 
     # output file prefix
-    output_filename_prefix = params_global["output_filename_prefix"] + params_global["output_filename_prefix_extra"]
+    output_filename_prefix = (
+        params_global["output_filename_prefix"]
+        + params_global["output_filename_prefix_extra"]
+    )
 
     # create outer nested sampling
-    ns = NS(params["ns"], NS_comm, MPI, params_global["random_seed"], params["configs"], output_filename_prefix,
-            different_n_rng_local=args.restart_diff_nproc, extra_config=NS_comm.rank == 0)
+    ns = NS(
+        params["ns"],
+        NS_comm,
+        MPI,
+        params_global["random_seed"],
+        params["configs"],
+        output_filename_prefix,
+        different_n_rng_local=args.restart_diff_nproc,
+        extra_config=NS_comm.rank == 0,
+    )
     print(f"{NS_comm.rank}/{NS_comm.size} Got n_configs_local {ns.n_configs_local}")
 
     start_iter = ns.snapshot_iter + 1 if ns.snapshot_iter >= 0 else 0
@@ -171,7 +214,9 @@ def sample(args, MPI, NS_comm, walker_comm):
     # WARNING: clone_history_file not restartable
     if params_global["clone_history"]:
         clone_history_file = open(f"{output_filename_prefix}.clone_history", "w")
-        clone_history_file.write(f'# {{"fields": ["loop_iter", "clone_source", "clone_target"], "n_walkers": {ns.n_configs_global}}}\n')
+        clone_history_file.write(
+            f'# {{"fields": ["loop_iter", "clone_source", "clone_target"], "n_walkers": {ns.n_configs_global}}}\n'
+        )
     else:
         clone_history_file = None
 
@@ -193,7 +238,9 @@ def sample(args, MPI, NS_comm, walker_comm):
             while True:
                 line = f_samples.readline()
                 if not line:
-                    raise RuntimeError(f"Failed to find enough lines in .NS_samples file (last line {line_i}) to reach snapshot iter {ns.snapshot_iter}")
+                    raise RuntimeError(
+                        f"Failed to find enough lines in .NS_samples file (last line {line_i}) to reach snapshot iter {ns.snapshot_iter}"
+                    )
 
                 line_i = int(line.split()[0])
                 if line_i + sample_interval > ns.snapshot_iter:
@@ -209,7 +256,9 @@ def sample(args, MPI, NS_comm, walker_comm):
                 try:
                     config_i = ns.NSConfig.skip(f_configs)
                 except EOFError:
-                    raise RuntimeError(f"Failed to find enough lines in .traj{config_suffix} file (last config {config_i}) to reach snapshot iter {ns.snapshot_iter}")
+                    raise RuntimeError(
+                        f"Failed to find enough lines in .traj{config_suffix} file (last config {config_i}) to reach snapshot iter {ns.snapshot_iter}"
+                    )
 
                 if config_i + traj_interval > ns.snapshot_iter:
                     cur_pos = f_configs.tell()
@@ -225,11 +274,13 @@ def sample(args, MPI, NS_comm, walker_comm):
             # run from start, open new .NS_samples and .traj.suffix files
 
             ns_file = open(ns_file_name, "w")
-            header_dict = { "n_walkers": ns.n_configs_global, "n_cull": 1 }
+            header_dict = {"n_walkers": ns.n_configs_global, "n_cull": 1}
             header_dict.update(ns.local_configs[0].header_dict())
-            ns_file.write("# " + " ".join(json.dumps(header_dict, indent=0).splitlines()) + "\n")
+            ns_file.write(
+                "# " + " ".join(json.dumps(header_dict, indent=0).splitlines()) + "\n"
+            )
 
-            traj_file = open(traj_file_name,  "w")
+            traj_file = open(traj_file_name, "w")
 
     max_iter = params_global["max_iter"]
     if max_iter > 0:
@@ -249,24 +300,40 @@ def sample(args, MPI, NS_comm, walker_comm):
         # max info should already be set to: ns.rank_of_max, ns.local_ind_of_max, ns.max_val, ns.max_quants
 
         # write quantities for max config which will be culled below
-        if NS_comm.rank == 0 and sample_interval > 0 and loop_iter % sample_interval == 0:
-            ns_file.write(f"{loop_iter} {ns.max_val:.10f} " + " ".join([f"{quant:.10f}" for quant in ns.max_quants]) + "\n")
+        if (
+            NS_comm.rank == 0
+            and sample_interval > 0
+            and loop_iter % sample_interval == 0
+        ):
+            ns_file.write(
+                f"{loop_iter} {ns.max_val:.10f} "
+                + " ".join([f"{quant:.10f}" for quant in ns.max_quants])
+                + "\n"
+            )
             ns_file.flush()
 
         # tune step sizes at some iteration interval
         if step_size_tune_interval > 0 and loop_iter % step_size_tune_interval == 0:
-            ns.step_size_tune(n_configs=params_step_size_tune["n_configs"],
-                              min_accept_rate=params_step_size_tune["min_accept_rate"],
-                              max_accept_rate=params_step_size_tune["max_accept_rate"],
-                              adjust_factor=params_step_size_tune["adjust_factor"])
+            ns.step_size_tune(
+                n_configs=params_step_size_tune["n_configs"],
+                min_accept_rate=params_step_size_tune["min_accept_rate"],
+                max_accept_rate=params_step_size_tune["max_accept_rate"],
+                adjust_factor=params_step_size_tune["adjust_factor"],
+            )
 
         # pick random config as source for clone.
         global_ind_of_max = ns.global_ind(ns.rank_of_max, ns.local_ind_of_max)
-        global_ind_of_clone_source = (global_ind_of_max + 1 + ns.rng_global.integers(0, ns.n_configs_global - 1)) % ns.n_configs_global
-        rank_of_clone_source, local_ind_of_clone_source = ns.local_ind(global_ind_of_clone_source)
+        global_ind_of_clone_source = (
+            global_ind_of_max + 1 + ns.rng_global.integers(0, ns.n_configs_global - 1)
+        ) % ns.n_configs_global
+        rank_of_clone_source, local_ind_of_clone_source = ns.local_ind(
+            global_ind_of_clone_source
+        )
 
         if clone_history_file is not None:
-            clone_history_file.write(f"{loop_iter} {global_ind_of_clone_source} {global_ind_of_max}\n")
+            clone_history_file.write(
+                f"{loop_iter} {global_ind_of_clone_source} {global_ind_of_max}\n"
+            )
             if loop_iter % 1000 == 1000 - 1:
                 clone_history_file.flush()
 
@@ -290,15 +357,24 @@ def sample(args, MPI, NS_comm, walker_comm):
                 ns.local_configs[ns.local_ind_of_max].send(0, ns.comm, MPI)
 
         # do cloning locally or by send/recv pair
-        if rank_of_clone_source == ns.rank_of_max and rank_of_clone_source == NS_comm.rank:
+        if (
+            rank_of_clone_source == ns.rank_of_max
+            and rank_of_clone_source == NS_comm.rank
+        ):
             # local copy
-            ns.local_configs[ns.local_ind_of_max].copy_contents(ns.local_configs[local_ind_of_clone_source])
+            ns.local_configs[ns.local_ind_of_max].copy_contents(
+                ns.local_configs[local_ind_of_clone_source]
+            )
         elif NS_comm.rank == rank_of_clone_source:
             # send
-            ns.local_configs[local_ind_of_clone_source].send(ns.rank_of_max, ns.comm, MPI)
+            ns.local_configs[local_ind_of_clone_source].send(
+                ns.rank_of_max, ns.comm, MPI
+            )
         elif NS_comm.rank == ns.rank_of_max:
             # recv
-            ns.local_configs[ns.local_ind_of_max].recv(rank_of_clone_source, ns.comm, MPI)
+            ns.local_configs[ns.local_ind_of_max].recv(
+                rank_of_clone_source, ns.comm, MPI
+            )
 
         # walk one per proc
         if NS_comm.rank == ns.rank_of_max:
@@ -318,14 +394,23 @@ def sample(args, MPI, NS_comm, walker_comm):
             ns.report_store(loop_iter)
 
             time_cur = time.time()
-            if (stdout_report_interval_s > 0 and (time_cur - time_prev_stdout_report >= stdout_report_interval_s)) or loop_iter == 0:
-                print(f"NS loop {loop_iter} time {time_cur-time_prev_stdout_report:4.1f} max {ns.max_val:.6f} {ns.report()}")
+            if (
+                stdout_report_interval_s > 0
+                and (time_cur - time_prev_stdout_report >= stdout_report_interval_s)
+            ) or loop_iter == 0:
+                print(
+                    f"NS loop {loop_iter} time {time_cur-time_prev_stdout_report:4.1f} max {ns.max_val:.6f} {ns.report()}"
+                )
                 time_prev_stdout_report = time_cur
                 sys.stdout.flush()
 
         # NOTE: should this be a time rather than iteration interval?  That'd basically be straightforward,
         # except it would require an additional communication so all processes agree that it's time for a snapshot
-        if loop_iter > 0 and snapshot_interval > 0 and loop_iter % snapshot_interval == 0:
+        if (
+            loop_iter > 0
+            and snapshot_interval > 0
+            and loop_iter % snapshot_interval == 0
+        ):
             ns.snapshot(loop_iter, output_filename_prefix)
 
         loop_iter += 1
@@ -346,6 +431,8 @@ def main(args_list=None, mpi_finalize=True):
         call MPI.Finalize(), pass False if additional MPI things will be done afterwards
     """
     MPI, NS_comm, walker_comm = init_MPI()
+
+    print(NS_comm)
 
     if MPI.COMM_WORLD.rank == 0:
         args = parse_args(args_list=args_list)

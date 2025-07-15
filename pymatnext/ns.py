@@ -45,9 +45,10 @@ class NS:
         self.global_walk_length = params_ns["walk_length"]
 
         # get configuration constructor from module that defines exactly one class whose name starts with NSConfig_
+        print("###### configs_module ########")
         nsconfig_mod = importlib.import_module(params_ns["configs_module"])
         nsconfig_classes = [symb for symb in dir(nsconfig_mod) if symb.startswith("NSConfig_")]
-        assert len(nsconfig_classes) == 1
+        assert len(nsconfig_classes) == 1  # Internal: check if only one config mode importet
         self.NSConfig = getattr(nsconfig_mod, nsconfig_classes[0])
         self.NSConfig.initialize(params_configs)
 
