@@ -6,7 +6,6 @@ from copy import deepcopy
 import collections
 import json
 
-import ase.visualize
 import numpy as np
 
 import ase.data
@@ -26,7 +25,8 @@ try:
 except ModuleNotFoundError:
     lammps = None
 
-class NSConfig_ASE_Atoms():
+
+class NSConfig_ASE_Atoms:
     """Nested sampling configuration class containing an Atoms object
 
     Parameters
@@ -63,11 +63,15 @@ class NSConfig_ASE_Atoms():
     filename_suffix = ".extxyz"
     n_quantities = -1
 
-    _step_size_params = ["pos_gmc_each_atom", "cell_volume_per_atom", "cell_shear_per_rt3_atom", "cell_stretch"]
+    _step_size_params = [
+        "pos_gmc_each_atom",
+        "cell_volume_per_atom",
+        "cell_shear_per_rt3_atom",
+        "cell_stretch",
+    ]
     _max_E_hist = collections.deque(maxlen=1000)
     _walk_moves = ["gmc", "cell", "type"]
     _Zs = []
-
 
     @staticmethod
     def _parse_composition(composition):
@@ -86,7 +90,9 @@ class NSConfig_ASE_Atoms():
         """
         # parse composition and set up symbols and cls._Zs
         if isinstance(composition, str):
-            composition_p = re.split(r"([A-Z][a-z]?[0-9]*)", re.sub(r"\s+", "", composition))
+            composition_p = re.split(
+                r"([A-Z][a-z]?[0-9]*)", re.sub(r"\s+", "", composition)
+            )
             if any([s != "" for s in composition_p[0::2]]):
                 raise ValueError(f"Unknown characters in composition {composition}")
             composition_p = composition_p[1::2]
@@ -113,7 +119,6 @@ class NSConfig_ASE_Atoms():
 
         return Zs_counts[:, 0], Zs_counts[:, 1]
 
-
     @classmethod
     def initialize(cls, params):
         """Initialize class attributes, in particular Zs and n_quantities
@@ -128,7 +133,6 @@ class NSConfig_ASE_Atoms():
         if len(full_composition) == 0:
             full_composition = params["composition"]
         cls._Zs, _ = cls._parse_composition(full_composition)
-        
 
         # NS quantity = internal energy + P V - \sum_i \mu_i N_i
         # cell volume
@@ -136,8 +140,16 @@ class NSConfig_ASE_Atoms():
         # composition of each species iff len(Zs) > 1
         cls.n_quantities = 3 + (len(cls._Zs) if len(cls._Zs) > 1 else 0)
 
-
-    def __init__(self, params, compression=np.inf, source="random", seed_config=None, rng=None, kB=ase.units.kB, allocate_only=False):
+    def __init__(
+        self,
+        params,
+        compression=np.inf,
+        source="random",
+        seed_config=None,
+        rng=None,
+        kB=ase.units.kB,
+        allocate_only=False,
+    ):
         check_fill_defaults(params, param_defaults_ase_atoms, label="configs")
 
         if len(self._Zs) == 0:
@@ -165,7 +177,13 @@ class NSConfig_ASE_Atoms():
             n_atoms = params["n_atoms"]
             n_dims = params["dims"]
             pbc = params["pbc"]
-            initial_limits = np.array([[0,1],[0,1],[0.19,0.8]])
+
+            # include limits
+            initial_limits = np.array([[0.0, 1.0], [0.0, 1.0], [0.0, 1.0]])
+            for i, val in enumerate(["x", "y", "z"]):
+                if val in params["walk"]["gmc_limit"].keys():
+                    initial_limits[i] = params["walk"]["gmc_limit"][val]
+
             initial_rand_min_dist = params["initial_rand_min_dist"]
             initial_rand_n_tries = params["initial_rand_n_tries"]
 
@@ -183,7 +201,9 @@ class NSConfig_ASE_Atoms():
                 numbers += [Z] * count
 
             if n_atoms % len(numbers) != 0:
-                raise ValueError(f"composition {params['composition']} number of atoms {len(numbers)} not compatible with n_atoms {n_atoms}")
+                raise ValueError(
+                    f"composition {params['composition']} number of atoms {len(numbers)} not compatible with n_atoms {n_atoms}"
+                )
 
             # duplicate formula unit as much as needed
             numbers *= n_atoms // len(numbers)
@@ -194,12 +214,14 @@ class NSConfig_ASE_Atoms():
             elif isinstance(seed_config, Atoms):
                 cell = seed_config.cell
             else:
-                cell = [(initial_rand_vol_per_atom * n_atoms) ** (1.0 / n_dims)] * n_dims + [0.0] * (3-n_dims)
+                cell = [
+                    (initial_rand_vol_per_atom * n_atoms) ** (1.0 / n_dims)
+                ] * n_dims + [0.0] * (3 - n_dims)
                 # perturb slightly
                 F = np.eye(3) + np.diag(rng.normal(scale=0.01, size=3))
                 # off diagonals apply twice, so scale by 1/sqrt(2) for equal magnitude relative to diagonal
                 # NOTE: just hope that we're not violating min_aspect_ratio here
-                F_off_diag = rng.normal(scale=0.01 / np.sqrt(2), size=(3,3))
+                F_off_diag = rng.normal(scale=0.01 / np.sqrt(2), size=(3, 3))
                 F_off_diag -= np.diag(np.diag(F_off_diag))
                 F += F_off_diag
                 cell = cell @ F
@@ -209,40 +231,77 @@ class NSConfig_ASE_Atoms():
                 scaled_positions = np.zeros((n_atoms, 3))
             else:
                 scaled_positions = rng.uniform(size=(n_atoms, 3))
-                if isinstance(initial_limits,np.ndarray):
-                    rescale = [initial_limits[0,1]-initial_limits[0,0], initial_limits[1,1]-initial_limits[1,0], initial_limits[2,1]-initial_limits[2,0]]
-                    delta = [initial_limits[0,0], initial_limits[1,0], initial_limits[2,0]]
-                    scaled_positions = scaled_positions*rescale + delta
-
-            
+                rescale = [
+                    initial_limits[0, 1] - initial_limits[0, 0],
+                    initial_limits[1, 1] - initial_limits[1, 0],
+                    initial_limits[2, 1] - initial_limits[2, 0],
+                    ]
+                delta = [
+                    initial_limits[0, 0],
+                    initial_limits[1, 0],
+                    initial_limits[2, 0],
+                    ]
+                scaled_positions = scaled_positions * rescale + delta
 
             # create Atoms object or extend seed_config
             if isinstance(seed_config, Atoms):
-                tmp = deepcopy(seed_config)
-                tmp.extend(Atoms(numbers=numbers, cell=cell, scaled_positions=scaled_positions, pbc=pbc,tags=np.ones(n_atoms)))
-                self.atoms = AtomsContiguousStorage(tmp)
+                tmp_seed = deepcopy(seed_config)
+                tmp_seed.extend(
+                    Atoms(
+                        numbers=numbers,
+                        cell=cell,
+                        scaled_positions=scaled_positions,
+                        pbc=pbc,
+                        tags=np.ones(n_atoms),
+                    )
+                )
+                self.atoms = AtomsContiguousStorage(tmp_seed)
             else:
-                self.atoms = AtomsContiguousStorage(numbers=numbers, cell=cell, scaled_positions=scaled_positions, pbc=pbc)
+                self.atoms = AtomsContiguousStorage(
+                    numbers=numbers,
+                    cell=cell,
+                    scaled_positions=scaled_positions,
+                    pbc=pbc,
+                )
 
             if not allocate_only and initial_rand_min_dist is not None:
-                d = neighbor_list('d', self.atoms, cutoff = initial_rand_min_dist, self_interaction = False)
+                d = neighbor_list(
+                    "d",
+                    self.atoms,
+                    cutoff=initial_rand_min_dist,
+                    self_interaction=False,
+                )
                 i_iter = 0
                 while len(d) > 0 and i_iter < initial_rand_n_tries:
-                    if isinstance(seed_config,Atoms):
-                        tmp_pos = self.atoms.get_positions()
-                        tmp_pos[len(seed_config):] = rng.uniform(size=((n_atoms, 3)))
+                    if isinstance(seed_config, Atoms):
+                        tmp_pos = self.atoms.get_scaled_positions()
+                        tmp_pos[len(seed_config):] = rng.uniform(size=((n_atoms, 3))) * rescale + delta
+                        self.atoms.set_scaled_positions(tmp_pos)
                     else:
-                       self.atoms.set_scaled_positions(rng.uniform(size=((n_atoms, 3))))
-                    d = neighbor_list('d', self.atoms, cutoff = initial_rand_min_dist, self_interaction = False)
+                        self.atoms.set_scaled_positions(
+                            rng.uniform(size=((n_atoms, 3)))
+                        )
+                    d = neighbor_list(
+                        "d",
+                        self.atoms,
+                        cutoff=initial_rand_min_dist,
+                        self_interaction=False,
+                    )
                     i_iter += 1
                 if i_iter > 0:
                     if len(d) > 0:
-                        raise RuntimeError(f"Failed to make initial configuration in {i_iter} tries")
-                    warnings.warn(f"Required {i_iter} iterations to get a valid initial config")
+                        raise RuntimeError(
+                            f"Failed to make initial configuration in {i_iter} tries"
+                        )
+                    warnings.warn(
+                        f"Required {i_iter} iterations to get a valid initial config"
+                    )
         elif isinstance(source, Atoms):
             self.atoms = AtomsContiguousStorage(source)
         else:
-            raise ValueError(f"NSConfig_ASE_Atoms from unknown source of type {type(source)}")
+            raise ValueError(
+                f"NSConfig_ASE_Atoms from unknown source of type {type(source)}"
+            )
 
         # prepare for walks
         params_walk = params["walk"]
@@ -268,17 +327,15 @@ class NSConfig_ASE_Atoms():
 
         self.reset_walk_counters()
 
-
     def reset_walk_counters(self):
-        """Reset attempted and successful step counters
-        """
+        """Reset attempted and successful step counters"""
 
-        self.n_att_acc = {k: np.zeros(2, dtype=int) for k in NSConfig_ASE_Atoms._step_size_params}
-
+        self.n_att_acc = {
+            k: np.zeros(2, dtype=int) for k in NSConfig_ASE_Atoms._step_size_params
+        }
 
     def end_calculator(self):
-        """Close any existing initialized calculator
-        """
+        """Close any existing initialized calculator"""
 
         if self.calc_type == "ASE":
             pass
@@ -289,7 +346,6 @@ class NSConfig_ASE_Atoms():
             raise NotImplementedError(f"Unknown calculator type {self.calc_type}")
 
         self.calc = None
-
 
     def init_calculator(self, skip_initial_store=False):
         """Initialize calculator.  Not part of constructor since some calculators (e.g. LAMMPS)
@@ -308,18 +364,35 @@ class NSConfig_ASE_Atoms():
             calc_module = importlib.import_module(params_calc["args"]["module"])
             self.calc = calc_module.calc
         elif self.calc_type == "LAMMPS":
-            lammps_header = params_calc["args"].get("header", ["units metal", "atom_style atomic", "atom_modify map array sort 0 0"]).copy()
+            lammps_header = (
+                params_calc["args"]
+                .get(
+                    "header",
+                    [
+                        "units metal",
+                        "atom_style atomic",
+                        "atom_modify map array sort 0 0",
+                    ],
+                )
+                .copy()
+            )
 
             # base command args
-            lammps_cmd_args = params_calc["args"].get("cmd_args", ["-echo", "log", "-screen", "none", "-nocite"])
+            lammps_cmd_args = params_calc["args"].get(
+                "cmd_args", ["-echo", "log", "-screen", "none", "-nocite"]
+            )
             # special setting for log file, default none
-            lammps_cmd_args.extend(["-log", params_calc["args"].get("log_file", "none")])
+            lammps_cmd_args.extend(
+                ["-log", params_calc["args"].get("log_file", "none")]
+            )
 
             lammps_name = params_calc["args"].get("name", "")
             self.calc = lammps.lammps(lammps_name, lammps_cmd_args)
             for cmd in lammps_header:
                 self.calc.command(cmd)
-            self.calc.command("boundary " + " ".join([params_calc["args"].get("boundary", "p")] * 3))
+            self.calc.command(
+                "boundary " + " ".join([params_calc["args"].get("boundary", "p")] * 3)
+            )
             self.calc.command("box tilt large")
             self.calc.command("region cell prism   0 1    0 1    0 1   0 0 0 units box")
             species_types = params_calc["args"]["types"]
@@ -333,7 +406,9 @@ class NSConfig_ASE_Atoms():
                 try:
                     self.calc.command(cmd)
                 except Exception:
-                    sys.stderr.write(f"LAMMPS exception while running command '{cmd}'\n")
+                    sys.stderr.write(
+                        f"LAMMPS exception while running command '{cmd}'\n"
+                    )
                     raise
 
             # type for each Z
@@ -345,7 +420,9 @@ class NSConfig_ASE_Atoms():
                 except ValueError:
                     Z = ase.data.chemical_symbols.index(species)
                 if species_type <= 0:
-                    raise ValueError(f"type for species {Z} is {species_type}, must be > 0")
+                    raise ValueError(
+                        f"type for species {Z} is {species_type}, must be > 0"
+                    )
                 Z_types[Z] = species_type
 
             # make numpy arrays for (presumably?) faster lookup
@@ -357,7 +434,9 @@ class NSConfig_ASE_Atoms():
             if len(species_types) > 0:
                 for Z in self._Zs:
                     if self.type_of_Z[Z] == 0:
-                        raise ValueError(f"Got composition Z={Z} and mapping of types {species_types} that does not include this species")
+                        raise ValueError(
+                            f"Got composition Z={Z} and mapping of types {species_types} that does not include this species"
+                        )
 
                     # also check backward mapping
                     assert self.Z_of_type[self.type_of_Z[Z]] != 0
@@ -368,12 +447,10 @@ class NSConfig_ASE_Atoms():
         # calculate energy/forces and save values
         self.initial_calc_and_store(skip_initial_store)
 
-
     def _rotate_to_lammps(self):
-        """rotate to align with LAMMPS required orientation
-        """
+        """rotate to align with LAMMPS required orientation"""
         cell = self.atoms.cell
-        orig_cart = np.zeros((3,3))
+        orig_cart = np.zeros((3, 3))
         # original x is aligned with cell[0]
         orig_cart[0] = cell[0] / np.linalg.norm(cell[0])
         # original z is aligned with cell[0] x cell[1]
@@ -390,7 +467,6 @@ class NSConfig_ASE_Atoms():
         # rotate
         self.atoms.set_cell(cell @ R, True)
 
-
     def _prep_walk(self, params, vol_per_atom=None):
         """Set up data structures for walks based on params["configs"]["walk"]
 
@@ -404,11 +480,23 @@ class NSConfig_ASE_Atoms():
             if they were not specified.
         """
         # trajectory lengths and (unnormalized) probabilities to achieve desired proportions
-        self.walk_traj_len = {move: params[f"{move}_traj_len"] for move in NSConfig_ASE_Atoms._walk_moves}
+        self.walk_traj_len = {
+            move: params[f"{move}_traj_len"] for move in NSConfig_ASE_Atoms._walk_moves
+        }
         # list, so it can be used in Generator.choice, in same order as move type list
-        self.walk_prob = np.asarray([params[f"{move}_proportion"] / self.walk_traj_len[move] for move in NSConfig_ASE_Atoms._walk_moves])
+        self.walk_prob = np.asarray(
+            [
+                params[f"{move}_proportion"] / self.walk_traj_len[move]
+                for move in NSConfig_ASE_Atoms._walk_moves
+            ]
+        )
 
-        if all([params[f"{move}_proportion"] == 0.0 for move in NSConfig_ASE_Atoms._walk_moves]):
+        if all(
+            [
+                params[f"{move}_proportion"] == 0.0
+                for move in NSConfig_ASE_Atoms._walk_moves
+            ]
+        ):
             raise ValueError("At least some move must have proportion > 0")
 
         # probabilty check and normalization
@@ -424,7 +512,10 @@ class NSConfig_ASE_Atoms():
         # parameters for cell moves
         self.move_params["cell"] = deepcopy(params["cell"])
         normalization = sum(self.move_params["cell"]["submove_probabilities"].values())
-        self.move_params["cell"]["submove_probabilities"] = {k: v / normalization for k, v in self.move_params["cell"]["submove_probabilities"].items()}
+        self.move_params["cell"]["submove_probabilities"] = {
+            k: v / normalization
+            for k, v in self.move_params["cell"]["submove_probabilities"].items()
+        }
         if "pressure_GPa" in self.move_params["cell"]:
             if self.move_params["cell"].get("pressure", None) is not None:
                 raise ValueError("Got both cell.pressure and cell.pressure_GPa")
@@ -452,20 +543,29 @@ class NSConfig_ASE_Atoms():
         assert set(list(self.max_step_size.keys())) == set(self._step_size_params)
         # max step size for position GMC and cell volume defaults are scaled to volume per atom
         if self.max_step_size["pos_gmc_each_atom"] < 0.0:
-            self.max_step_size["pos_gmc_each_atom"] = (vol_per_atom ** (1.0/3.0)) * np.abs(self.max_step_size["pos_gmc_each_atom"])
+            self.max_step_size["pos_gmc_each_atom"] = (
+                vol_per_atom ** (1.0 / 3.0)
+            ) * np.abs(self.max_step_size["pos_gmc_each_atom"])
         if self.max_step_size["cell_volume_per_atom"] < 0.0:
-            self.max_step_size["cell_volume_per_atom"] = vol_per_atom * np.abs(self.max_step_size["cell_volume_per_atom"])
+            self.max_step_size["cell_volume_per_atom"] = vol_per_atom * np.abs(
+                self.max_step_size["cell_volume_per_atom"]
+            )
         if self.max_step_size["cell_shear_per_rt3_atom"] < 0.0:
-            self.max_step_size["cell_shear_per_rt3_atom"] = (vol_per_atom ** (1.0/3.0)) * np.abs(self.max_step_size["cell_shear_per_rt3_atom"])
+            self.max_step_size["cell_shear_per_rt3_atom"] = (
+                vol_per_atom ** (1.0 / 3.0)
+            ) * np.abs(self.max_step_size["cell_shear_per_rt3_atom"])
 
         # actual step sizes
         self.step_size = params["step_size"].copy()
         assert set(list(self.step_size.keys())) == set(self._step_size_params)
         # default to half the max for each type
-        self.step_size = {k: (v if v >= 0.0 else self.max_step_size[k] / 2.0) for k, v in self.step_size.items()}
+        self.step_size = {
+            k: (v if v >= 0.0 else self.max_step_size[k] / 2.0)
+            for k, v in self.step_size.items()
+        }
 
         # store limits
-        self.limit = params['gmc_limit']
+        self.limit = params["gmc_limit"]
 
         # store function pointers for moves
         self.walk_func = {}
@@ -485,14 +585,12 @@ class NSConfig_ASE_Atoms():
         if self.walk_prob[NSConfig_ASE_Atoms._walk_moves.index("gmc")] > 0.0:
             self.atoms.new_array("NS_velocities", np.zeros(self.atoms.positions.shape))
 
-
     def prepare(self):
         """do whatever is necessary to get ready for simulation. Here,
         make atom storage contiguous
         """
 
         self.atoms.make_contiguous()
-
 
     def initial_calc_and_store(self, skip_initial_store=False):
         """Calculate and store the results of a calculator, as well as other NS
@@ -507,21 +605,42 @@ class NSConfig_ASE_Atoms():
             skip storing the results of the initial calculation
         """
         if self.calc_type == "ASE":
-            self.calc.calculate(self.atoms, properties=["free_energy", "forces"], system_changes=all_changes)
+            self.calc.calculate(
+                self.atoms,
+                properties=["free_energy", "forces"],
+                system_changes=all_changes,
+            )
             if not skip_initial_store:
-                self.atoms.info["NS_energy"][...] = self.calc.results.get("free_energy", self.calc.results.get("energy"))
+                self.atoms.info["NS_energy"][...] = self.calc.results.get(
+                    "free_energy", self.calc.results.get("energy")
+                )
                 self.atoms.arrays["NS_forces"][...] = self.calc.results["forces"]
         elif self.calc_type == "LAMMPS":
             # WARNING: this duplicates code in walks_lammps.set_lammps_from_atoms, and at least at one point
             # there appears to have been a wrong implementation here.  Would be good to refactor somehow
-            self.calc.reset_box([0.0, 0.0, 0.0], np.diag(self.atoms.cell), self.atoms.cell[1, 0], self.atoms.cell[2, 1], self.atoms.cell[2, 0])
-            self.calc.create_atoms(len(self.atoms), list(np.arange(1, 1 + len(self.atoms))), self.type_of_Z[self.atoms.numbers],
-                                   self.atoms.positions.reshape((-1)), self.atoms.arrays["NS_velocities"].reshape((-1)))
+            self.calc.reset_box(
+                [0.0, 0.0, 0.0],
+                np.diag(self.atoms.cell),
+                self.atoms.cell[1, 0],
+                self.atoms.cell[2, 1],
+                self.atoms.cell[2, 0],
+            )
+            self.calc.create_atoms(
+                len(self.atoms),
+                list(np.arange(1, 1 + len(self.atoms))),
+                self.type_of_Z[self.atoms.numbers],
+                self.atoms.positions.reshape((-1)),
+                self.atoms.arrays["NS_velocities"].reshape((-1)),
+            )
             self.calc.command("run 0")
             if not skip_initial_store:
-                self.atoms.info["NS_energy"][...] = self.calc.extract_compute("pe", lammps.LMP_STYLE_GLOBAL, lammps.LMP_TYPE_SCALAR)
+                self.atoms.info["NS_energy"][...] = self.calc.extract_compute(
+                    "pe", lammps.LMP_STYLE_GLOBAL, lammps.LMP_TYPE_SCALAR
+                )
                 nlocal = self.calc.extract_global("nlocal")
-                self.atoms.arrays["NS_forces"][...] = self.calc.numpy.extract_atom("f")[:nlocal]
+                self.atoms.arrays["NS_forces"][...] = self.calc.numpy.extract_atom("f")[
+                    :nlocal
+                ]
 
             # do an initial 'fix NS' so that every walk can start with 'unfix NS'
             self.calc.command("fix NS all ns/gmc 1 0.0")
@@ -530,23 +649,24 @@ class NSConfig_ASE_Atoms():
             self.atoms.info["NS_energy_shift"][...] = self.calc_NS_energy_shift()
             self.update_NS_quantities()
 
-
     def update_NS_quantities(self):
-        """Update atoms.info["NS_quantities"] with current values
-        """
-        self.atoms.info["NS_quantities"][0] = self.atoms.info["NS_energy"] + self.atoms.info["NS_energy_shift"]
+        """Update atoms.info["NS_quantities"] with current values"""
+        self.atoms.info["NS_quantities"][0] = (
+            self.atoms.info["NS_energy"] + self.atoms.info["NS_energy_shift"]
+        )
         self.atoms.info["NS_quantities"][1] = self.atoms.get_volume()
         N_atoms = len(self.atoms)
         self.atoms.info["NS_quantities"][2] = N_atoms
         if len(self._Zs) > 1:
-            self.atoms.info["NS_quantities"][3:] = [sum(self.atoms.numbers == Z) / N_atoms for Z in self._Zs]
-
+            self.atoms.info["NS_quantities"][3:] = [
+                sum(self.atoms.numbers == Z) / N_atoms for Z in self._Zs
+            ]
 
     def calc_NS_energy_shift(self):
-        """Calculate current NS_energy_shift based on current volume and species
-        """
-        return self.pressure * self.atoms.get_volume() - np.sum(self.mu[self.atoms.numbers])
-
+        """Calculate current NS_energy_shift based on current volume and species"""
+        return self.pressure * self.atoms.get_volume() - np.sum(
+            self.mu[self.atoms.numbers]
+        )
 
     @staticmethod
     def skip(fileobj):
@@ -572,7 +692,7 @@ class NSConfig_ASE_Atoms():
             raise EOFError
         comment = line.strip()
 
-        m = re.search(r'\bNS_iter\s*=\s*([0-9]+)\b', comment)
+        m = re.search(r"\bNS_iter\s*=\s*([0-9]+)\b", comment)
         for i in range(n):
             line = fileobj.readline()
             if not line:
@@ -582,7 +702,6 @@ class NSConfig_ASE_Atoms():
             return int(m.group(1))
         else:
             return -1
-
 
     @staticmethod
     def read(fileobj, params):
@@ -612,7 +731,6 @@ class NSConfig_ASE_Atoms():
 
             yield at
 
-
     def write(self, fileobj, extra_info={}, full_state=False):
         """write a configuration to file object
 
@@ -632,15 +750,26 @@ class NSConfig_ASE_Atoms():
         except AttributeError:
             filename = str(fileobj)
         try:
-            ase.io.write(fileobj, self.atoms, format=ase.io.formats.filetype(filename, read=False), write_results=False, parallel=False)
+            ase.io.write(
+                fileobj,
+                self.atoms,
+                format=ase.io.formats.filetype(filename, read=False),
+                write_results=False,
+                parallel=False,
+            )
         except ase.io.formats.UnknownFileTypeError:
-            ase.io.write(fileobj, self.atoms, format="extxyz", write_results=False, parallel=False)
+            ase.io.write(
+                fileobj,
+                self.atoms,
+                format="extxyz",
+                write_results=False,
+                parallel=False,
+            )
 
         for k in extra_info:
             del self.atoms.info[k]
         if full_state:
             del self.atoms.info["_NS_step_size"]
-
 
     def header_dict(self):
         """Header line for NS_samples file
@@ -649,13 +778,15 @@ class NSConfig_ASE_Atoms():
         -------
         header: dict
         """
-        header_dict = { "n_extra_DOF_per_atom": 3,
-                        "pressure": self.pressure,
-                        "flat_V_prior": self.move_params["cell"]["flat_V_prior"],
-                        "extras": [ "volume", "natoms"] + ([f"x_{Z}" for Z in self._Zs] if len(self._Zs) > 1 else []) }
+        header_dict = {
+            "n_extra_DOF_per_atom": 3,
+            "pressure": self.pressure,
+            "flat_V_prior": self.move_params["cell"]["flat_V_prior"],
+            "extras": ["volume", "natoms"]
+            + ([f"x_{Z}" for Z in self._Zs] if len(self._Zs) > 1 else []),
+        }
 
         return header_dict
-
 
     def ns_quantities(self):
         """Update and return values of nested sampling quantity and other important quantities
@@ -668,20 +799,19 @@ class NSConfig_ASE_Atoms():
         self.update_NS_quantities()
         return self.atoms.info["NS_quantities"]
 
-
     def send(self, to_rank, comm, MPI):
-        """send configuration data to another process
-        """
+        """send configuration data to another process"""
         comm.Send([self.atoms.contig_storage_int, MPI.INT64_T], to_rank, tag=17)
         comm.Send([self.atoms.contig_storage_float, MPI.DOUBLE], to_rank, tag=18)
 
-
     def recv(self, from_rank, comm, MPI):
-        """receive configuration data from another process
-        """
-        comm.Recv([self.atoms.contig_storage_int, MPI.INT64_T], source=from_rank, tag=17)
-        comm.Recv([self.atoms.contig_storage_float, MPI.DOUBLE], source=from_rank, tag=18)
-
+        """receive configuration data from another process"""
+        comm.Recv(
+            [self.atoms.contig_storage_int, MPI.INT64_T], source=from_rank, tag=17
+        )
+        comm.Recv(
+            [self.atoms.contig_storage_float, MPI.DOUBLE], source=from_rank, tag=18
+        )
 
     def backup(self):
         """Store configuration data in backup arrays
@@ -690,8 +820,10 @@ class NSConfig_ASE_Atoms():
         -------
         (contig_storage_int, contig_storage_float): np.ndarray copies of int and float storage
         """
-        return self.atoms.contig_storage_int.copy(), self.atoms.contig_storage_float.copy()
-
+        return (
+            self.atoms.contig_storage_int.copy(),
+            self.atoms.contig_storage_float.copy(),
+        )
 
     def restore(self, source):
         """Restore configuration data from backup arrays
@@ -704,13 +836,10 @@ class NSConfig_ASE_Atoms():
         self.atoms.contig_storage_int[:] = source[0]
         self.atoms.contig_storage_float[:] = source[1]
 
-
     def copy_contents(self, source):
-        """copy configuration data from another NSConfig_ASE_Atoms
-        """
+        """copy configuration data from another NSConfig_ASE_Atoms"""
         self.atoms.contig_storage_int[:] = source.atoms.contig_storage_int
         self.atoms.contig_storage_float[:] = source.atoms.contig_storage_float
-
 
     def walk(self, Emax, walk_len, rng):
         """Walk a configuration
@@ -753,7 +882,6 @@ class NSConfig_ASE_Atoms():
 
         return self.n_att_acc
 
-
     @classmethod
     def report_store(cls, loop_iter, Emax):
         """Store quantities that are needed for reports on progress of NS iterations
@@ -767,7 +895,6 @@ class NSConfig_ASE_Atoms():
         """
         cls._max_E_hist.append((loop_iter, Emax))
 
-
     @classmethod
     def report(cls):
         """Report on progress of NS iteration
@@ -779,7 +906,6 @@ class NSConfig_ASE_Atoms():
         """
         return f"T {cls.temperature()}"
 
-
     @classmethod
     def temperature(cls):
         """Calculate estimated current temperature
@@ -790,11 +916,14 @@ class NSConfig_ASE_Atoms():
             current temperature (units depend on self.kB)
         """
         if len(cls._max_E_hist) > 1:
-            beta = (cls._max_E_hist[-1][0] - cls._max_E_hist[0][0]) * cls.log_compression / (cls._max_E_hist[-1][1] - cls._max_E_hist[0][1])
+            beta = (
+                (cls._max_E_hist[-1][0] - cls._max_E_hist[0][0])
+                * cls.log_compression
+                / (cls._max_E_hist[-1][1] - cls._max_E_hist[0][1])
+            )
             return 1.0 / (cls.kB * beta)
         else:
             return None
-
 
     @classmethod
     def new_configs_generator(cls, n_configs, params_configs, rng, configs_file):
@@ -820,25 +949,33 @@ class NSConfig_ASE_Atoms():
             configs_file = params_configs.pop("file", None)
 
         seed_config = params_configs.pop("seed_config", None)
-        if isinstance(seed_config,str):
+        if isinstance(seed_config, str):
             seed_config = ase.io.read(seed_config)
             seed_config.set_tags(np.zeros(len(seed_config)))
 
         if configs_file is not None:
+
             def new_configs_generator_file():
                 with open(configs_file) as fin:
                     for config_i, config in enumerate(cls.read(fin, params_configs)):
                         if config_i >= n_configs:
-                            raise RuntimeError(f"Found too many configs {config_i + 1} than requested "
-                                               f"{n_configs} in file {configs_file}")
+                            raise RuntimeError(
+                                f"Found too many configs {config_i + 1} than requested "
+                                f"{n_configs} in file {configs_file}"
+                            )
                         yield config
 
             return new_configs_generator_file
 
         else:
+
             def new_configs_generator_random():
                 for i in range(n_configs):
-                    yield cls(params_configs, rng=rng,
-                                        compression=n_configs / (n_configs + 1),seed_config=seed_config)
+                    yield cls(
+                        params_configs,
+                        rng=rng,
+                        compression=n_configs / (n_configs + 1),
+                        seed_config=seed_config,
+                    )
 
             return new_configs_generator_random

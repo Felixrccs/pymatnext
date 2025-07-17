@@ -10,7 +10,7 @@ param_defaults_ase_atoms = {
     "pbc": [True, True, True],
     "initial_rand_vol_per_atom": ["_REQ_", 1.0],
     "initial_rand_min_dist": ["_REQ_", 1.0],
-    "initial_rand_n_tries": 100,
+    "initial_rand_n_tries": 10,
     "calculator": {
         "type": ["_REQ_", "calc_type"],
         "args": { "_IGNORE_": True }
