@@ -185,9 +185,6 @@ class NSConfig_ASE_Atoms:
                     initial_limits[i] = params["walk"]["gmc_limit"][val]
 
             initial_rand_min_dist = params["initial_rand_min_dist"]
-            print(initial_rand_min_dist)
-            if 0 in initial_rand_min_dist.keys():
-                initial_rand_min_dist = initial_rand_min_dist[0] #Todo
             initial_rand_n_tries = params["initial_rand_n_tries"]
 
             # dimensions and PBC
