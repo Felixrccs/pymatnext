@@ -1,4 +1,5 @@
 from copy import deepcopy
+import random
 
 class ParamError(ValueError):
     pass
@@ -93,7 +94,36 @@ def check_fill_defaults(params_section, defaults_section, label="top", verbose=F
                 raise ParamError(f"{label}: Unknown keys {unknown_keys}")
     elif isinstance(defaults_section, (list, tuple)):
         # NOTE: do we need support for variable length lists, or lists with free types?
+
         if len(params_section) != len(defaults_section):
             raise ParamError(f"{label}: Params has length {len(params_section)} != {len(defaults_section)}")
         for item_i, (param_item, defaults_item) in enumerate(zip(params_section, defaults_section)):
             check_fill_defaults(param_item, defaults_item, label=f"{label} / i={item_i}", verbose=verbose)
+        
+
+
+def format_params(full_params):
+    """_summary_
+
+    Args:
+        full_params (_type_): _description_
+
+    Returns:
+        _type_: _description_
+    """
+    # Construct per atom distance dict from toml
+    keys = full_params["configs"]["initial_rand_min_dist"].keys()
+    if len(keys) == 1:
+        full_params["configs"]["initial_rand_min_dist"] = full_params["configs"]["initial_rand_min_dist"][keys[0]]
+    else:
+        initial_rand_min_dist = {}
+        for key in keys:
+            initial_rand_min_dist[tuple([int(k) for k in key.split('-')])] = full_params["configs"]["initial_rand_min_dist"][key]
+    full_params["configs"]["initial_rand_min_dist"] = initial_rand_min_dist
+
+    # random seed generation #Todo: I think Noam solved it somewhere as well but I wasn't sure 
+    if full_params["global"]["random_seed"] == -1:
+        full_params["global"]["random_seed"] = random.randint(1, 10000)
+    
+    print(full_params)
+    return full_params

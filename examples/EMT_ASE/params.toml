@@ -27,7 +27,7 @@
     [configs.calculator]
 
         type = "ASE"
-        args.module = "examples.EMT_ASE.EMT"
+        args.modulie = "examples.EMT_ASE.EMT"
 
     [configs.walk]
 

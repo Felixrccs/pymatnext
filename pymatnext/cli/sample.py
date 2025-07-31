@@ -10,14 +10,13 @@ import pprint
 import itertools
 import json
 import traceback
-import random
 
 from argparse import ArgumentParser
 
 import toml
 
 from pymatnext.ns import NS
-from pymatnext.params import check_fill_defaults
+from pymatnext.params import check_fill_defaults, format_params
 from pymatnext.sample_params import param_defaults
 
 from pymatnext.loop_exit import NSLoopExit
@@ -127,10 +126,8 @@ def sample(args, MPI, NS_comm, walker_comm):
         params = None
     params = NS_comm.bcast(params, root=0)
     check_fill_defaults(params, param_defaults)
-    # random seed generation
-    if params["global"]["random_seed"] == -1:
-        params["global"]["random_seed"] = random.randint(1, 10000)
-    print(params)
+    params = format_params(params)
+
 
     # override with command line arguments
     for arg_name, arg_val in args.override_param:
@@ -432,7 +429,7 @@ def main(args_list=None, mpi_finalize=True):
     """
     MPI, NS_comm, walker_comm = init_MPI()
 
-    print(NS_comm)
+    print(NS_comm, MPI)
 
     if MPI.COMM_WORLD.rank == 0:
         args = parse_args(args_list=args_list)

@@ -4,7 +4,7 @@ from ase.calculators.calculator import all_changes
 
 import numpy as np
 
-one_third = 1.0/3.0
+one_third = 1.0 / 3.0
 
 
 def walk_pos_gmc(ns_atoms, Emax, rng):
@@ -25,55 +25,115 @@ def walk_pos_gmc(ns_atoms, Emax, rng):
     """
     atoms = ns_atoms.atoms
     # new random velocities
-    atoms.arrays["NS_velocities"][...] = rng.normal(scale=ns_atoms.step_size["pos_gmc_each_atom"], size=atoms.positions.shape)
+    atoms.arrays["NS_velocities"][...] = rng.normal(
+        scale=ns_atoms.step_size["pos_gmc_each_atom"], size=atoms.positions.shape
+    )
 
     # below here operate only on _internal_ energy, without any "+ P V - mu N" shifts
     Emax -= atoms.info["NS_energy_shift"]
-    atoms.calc.calculate(atoms, properties=["free_energy", "forces"], system_changes=all_changes)
+    atoms.calc.calculate(
+        atoms, properties=["free_energy", "forces"], system_changes=all_changes
+    )
 
     # store orig position in case move is rejected
     atoms.prev_positions[...] = atoms.positions
     n_failed_in_a_row = 0
 
     # consider fixed atoms
-    moving = np.broadcast_to(atoms.get_tags()[:,None],(len(atoms),3))
+    moving = np.broadcast_to(atoms.get_tags()[:, None], (len(atoms), 3))
     for i_step in range(ns_atoms.walk_traj_len["gmc"]):
         # step and evaluate new energy, forces
-        atoms.positions += atoms.arrays["NS_velocities"]*moving
+        atoms.positions += atoms.arrays["NS_velocities"] * moving
         # inclusion of limits by instering reflective walls at the lower and the higher limits
         if ns_atoms.limit != {}:
             tmp = atoms.get_scaled_positions(wrap=False)
-            for k, val  in enumerate(['x','y','z']):
+            for k, val in enumerate(["x", "y", "z"]):
                 if val in ns_atoms.limit.keys():
-                    if (np.min(tmp[:,2])<=ns_atoms.limit[val][0] or np.max(tmp[:,2])>=ns_atoms.limit[val][1]):
+                    if (
+                        np.min(tmp[:, 2]) <= ns_atoms.limit[val][0]
+                        or np.max(tmp[:, 2]) >= ns_atoms.limit[val][1]
+                    ):
                         # mirror of velocities
-                        change = np.where(tmp[:,k]<=ns_atoms.limit[val][0], -2, 0) + np.where(tmp[:,k]<=ns_atoms.limit[val][1], 0, -2) + 1
-                        atoms.arrays["NS_velocities"][:,k] *=change
+                        change = (
+                            np.where(tmp[:, k] <= ns_atoms.limit[val][0], -2, 0)
+                            + np.where(tmp[:, k] <= ns_atoms.limit[val][1], 0, -2)
+                            + 1
+                        )
+                        atoms.arrays["NS_velocities"][:, k] *= change
                         # mirror of positions
-                        while (np.min(tmp[:,k])<=ns_atoms.limit[val][0] or np.max(tmp[:,k])>=ns_atoms.limit[val][1]):
-                            tmp[:,k] = np.where(tmp[:,k] <= ns_atoms.limit[val][0], k*ns_atoms.limit[val][0] -tmp[:,k], tmp[:,k])
-                            tmp[:,k] = np.where(tmp[:,k] <= ns_atoms.limit[val][1], tmp[:,k], 2*ns_atoms.limit[val][1] -tmp[:,k])
-                        atoms.set_scaled_positions(atoms.get_scaled_positions(wrap=False)*(1.-moving)+ tmp*moving)
+                        while (
+                            np.min(tmp[:, k]) <= ns_atoms.limit[val][0]
+                            or np.max(tmp[:, k]) >= ns_atoms.limit[val][1]
+                        ):
+                            tmp[:, k] = np.where(
+                                tmp[:, k] <= ns_atoms.limit[val][0],
+                                k * ns_atoms.limit[val][0] - tmp[:, k],
+                                tmp[:, k],
+                            )
+                            tmp[:, k] = np.where(
+                                tmp[:, k] <= ns_atoms.limit[val][1],
+                                tmp[:, k],
+                                2 * ns_atoms.limit[val][1] - tmp[:, k],
+                            )
+                        atoms.set_scaled_positions(
+                            atoms.get_scaled_positions(wrap=False) * (1.0 - moving)
+                            + tmp * moving
+                        )
 
-
-        atoms.calc.calculate(atoms, properties=["free_energy", "forces"], system_changes=all_changes)
+        atoms.calc.calculate(
+            atoms, properties=["free_energy", "forces"], system_changes=all_changes
+        )
         E = atoms.calc.results.get("free_energy", atoms.calc.results.get("energy"))
         F = atoms.calc.results["forces"]
 
-        if E >= Emax: # reflect or fail
+        if E >= Emax:  # reflect or fail
             n_failed_in_a_row += 1
             if n_failed_in_a_row >= 2:
                 break
-            if np.sum(F*F) == 0:
+            if np.sum(F * F) == 0:
                 warnings.warn("Got F=0 while reflecting, giving up")
                 break
             F_hat = F / np.sqrt(np.sum(F * F))
-            atoms.arrays["NS_velocities"] -= F_hat * 2.0 * np.sum(atoms.arrays["NS_velocities"] * F_hat)
+            atoms.arrays["NS_velocities"] -= (
+                F_hat * 2.0 * np.sum(atoms.arrays["NS_velocities"] * F_hat)
+            )
         else:
             n_failed_in_a_row = 0
 
     if n_failed_in_a_row > 0:
         # revert
+        atoms.positions[...] = atoms.prev_positions
+
+        return [("pos_gmc_each_atom", 1, 0)]
+    else:
+        atoms.info["NS_energy"][...] = E
+        atoms.arrays["NS_forces"][...] = F
+
+        return [("pos_gmc_each_atom", 1, 1)]
+
+
+def walk_lattice_single(ns_atoms, Emax, rng):
+    atoms = ns_atoms.atoms
+    atoms.prev_positions[...] = atoms.positions
+    atom_id = rng.choice(np.where(atoms.get_tags() == 1)[0])
+    shift = np.array(
+        [
+            rng.integers(0, atoms.lattice[0]) / atoms.lattice[0],
+            rng.integers(0, atoms.lattice[1]) / atoms.lattice[1],
+            0,
+        ]
+    )
+    tmp = atoms.get_scaled_positions(wrap=False)
+    tmp[atom_id] += shift
+    atoms.get_scaled_positions(tmp)
+
+    atoms.calc.calculate(
+        atoms, properties=["free_energy", "forces"], system_changes=all_changes
+    )
+    E = atoms.calc.results.get("free_energy", atoms.calc.results.get("energy"))
+    F = atoms.calc.results["forces"]
+
+    if E >= Emax:  # accept or fail
         atoms.positions[...] = atoms.prev_positions
 
         return [("pos_gmc_each_atom", 1, 0)]
@@ -96,10 +156,10 @@ def _min_aspect_ratio(cell):
     -------
     minimum_aspect_ratio: float
     """
-    crosses = np.asarray([np.cross(cell[i], cell[(i + 1) %3]) for i in range(3)])
+    crosses = np.asarray([np.cross(cell[i], cell[(i + 1) % 3]) for i in range(3)])
     cross_norms = np.linalg.norm(crosses, axis=1)
     vol = np.abs(np.sum(cell[0] * np.cross(cell[1], cell[2])))
-    return np.min(vol / cross_norms) / (vol ** one_third)
+    return np.min(vol / cross_norms) / (vol**one_third)
 
 
 def _eval_and_accept_or_signal_revert(atoms, Emax, delta_PV=0.0, delta_muN=0.0):
@@ -117,7 +177,9 @@ def _eval_and_accept_or_signal_revert(atoms, Emax, delta_PV=0.0, delta_muN=0.0):
     -------
     revert: bool, True if move is rejected and must be reverted
     """
-    atoms.calc.calculate(atoms, properties=["free_energy", "forces"], system_changes=all_changes)
+    atoms.calc.calculate(
+        atoms, properties=["free_energy", "forces"], system_changes=all_changes
+    )
     E = atoms.calc.results.get("free_energy", atoms.calc.results.get("energy"))
     E_shift = atoms.info["NS_energy_shift"] + delta_PV - delta_muN
     if E + E_shift < Emax:
@@ -153,7 +215,9 @@ def walk_cell(ns_atoms, Emax, rng):
     atoms = ns_atoms.atoms
     N_atoms = len(atoms)
     step_size_volume = ns_atoms.step_size["cell_volume_per_atom"] * N_atoms
-    step_size_shear = ns_atoms.step_size["cell_shear_per_rt3_atom"] * (N_atoms ** (1.0 / 3.0))
+    step_size_shear = ns_atoms.step_size["cell_shear_per_rt3_atom"] * (
+        N_atoms ** (1.0 / 3.0)
+    )
     step_size_stretch = ns_atoms.step_size["cell_stretch"]
     min_aspect_ratio = ns_atoms.move_params["cell"]["min_aspect_ratio"]
     flat_V_prior = ns_atoms.move_params["cell"]["flat_V_prior"]
@@ -176,7 +240,11 @@ def walk_cell(ns_atoms, Emax, rng):
             if V_scale < 0.5:
                 # too small, reject
                 continue
-            elif not flat_V_prior and new_V < orig_V and rng.uniform() > np.pow(V_scale, N_atoms):
+            elif (
+                not flat_V_prior
+                and new_V < orig_V
+                and rng.uniform() > np.pow(V_scale, N_atoms)
+            ):
                 # V^N prior
                 continue
             new_cell = atoms.cell * (V_scale**one_third)
@@ -185,7 +253,7 @@ def walk_cell(ns_atoms, Emax, rng):
             rv = rng.normal(scale=step_size_stretch)
             F = np.eye(3)
             F[v_ind, v_ind] = np.exp(rv)
-            v_next = (v_ind + 1 ) % 3
+            v_next = (v_ind + 1) % 3
             F[v_next, v_next] = np.exp(-rv)
             new_cell = atoms.cell @ F
             if _min_aspect_ratio(new_cell) < min_aspect_ratio:
@@ -212,15 +280,19 @@ def walk_cell(ns_atoms, Emax, rng):
         atoms.prev_positions[...] = atoms.positions
         atoms.set_cell(new_cell, True)
 
-        if _eval_and_accept_or_signal_revert(atoms, Emax, delta_PV = ns_atoms.pressure * delta_V):
+        if _eval_and_accept_or_signal_revert(
+            atoms, Emax, delta_PV=ns_atoms.pressure * delta_V
+        ):
             atoms.positions[...] = atoms.prev_positions
             atoms.cell.array[...] = atoms.prev_cell
         else:
             n_acc[move] += 1
 
-    return [("cell_volume_per_atom", n_att["volume"], n_acc["volume"]),
-            ("cell_shear_per_rt3_atom", n_att["shear"], n_acc["shear"]),
-            ("cell_stretch", n_att["stretch"], n_acc["stretch"])]
+    return [
+        ("cell_volume_per_atom", n_att["volume"], n_acc["volume"]),
+        ("cell_shear_per_rt3_atom", n_att["shear"], n_acc["shear"]),
+        ("cell_stretch", n_att["stretch"], n_acc["stretch"]),
+    ]
 
 
 def walk_type(ns_atoms, Emax, rng):
@@ -264,7 +336,7 @@ def walk_type(ns_atoms, Emax, rng):
             if _eval_and_accept_or_signal_revert(atoms, Emax, delta_muN=delta_muN):
                 # revert
                 atoms.numbers[i0] = Zs[type0]
-        else: # swap
+        else:  # swap
             # pick an atom of a different type
             Z0 = atoms.numbers[i0]
             i1 = rng.choice(np.where(atoms.numbers != Z0)[0])
