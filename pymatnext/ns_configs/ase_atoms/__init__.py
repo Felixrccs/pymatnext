@@ -147,7 +147,6 @@ class NSConfig_ASE_Atoms:
         for key in params["walk"]:
             cls._walk_moves.append(key)
 
-
     def __init__(
         self,
         params,
@@ -490,8 +489,7 @@ class NSConfig_ASE_Atoms:
         """
         # trajectory lengths and (unnormalized) probabilities to achieve desired proportions
         self.walk_traj_len = {
-            move: params[move]["traj_len"]
-            for move in NSConfig_ASE_Atoms._walk_moves
+            move: params[move]["traj_len"] for move in NSConfig_ASE_Atoms._walk_moves
         }
         # list, so it can be used in Generator.choice, in same order as move type list
         self.walk_prob = np.asarray(
@@ -558,14 +556,15 @@ class NSConfig_ASE_Atoms:
                     self.step_size[step_size] = params[move]["step"][step_size]
                     if params[move]["max_step"][step_size] < 0.0:
                         # max step size for position GMC and cell volume defaults are scaled to volume per atom
-                        self.max_step_size[step_size] = (vol_per_atom ** (1.0 / 3.0)) * np.abs(
-                            params[move]["max_step"][step_size]
-                        )
+                        self.max_step_size[step_size] = (
+                            vol_per_atom ** (1.0 / 3.0)
+                        ) * np.abs(params[move]["max_step"][step_size])
                     else:
-                        self.max_step_size[step_size] = params[move]["max_step"][step_size]
+                        self.max_step_size[step_size] = params[move]["max_step"][
+                            step_size
+                        ]
 
-
-        #self.max_step_size = params["max_step_size"].copy()
+        # self.max_step_size = params["max_step_size"].copy()
         assert set(list(self.max_step_size.keys())) == set(self._step_size_params)
 
         assert set(list(self.step_size.keys())) == set(self._step_size_params)
@@ -585,131 +584,18 @@ class NSConfig_ASE_Atoms:
         for move in NSConfig_ASE_Atoms._walk_moves:
             try:
                 if self.calc_type == "ASE":
-                    mod = importlib.import_module('pymatnext.ns_configs.ase_atoms.walks_ase_calc')
+                    mod = importlib.import_module(
+                        "pymatnext.ns_configs.ase_atoms.walks_ase_calc"
+                    )
                 elif self.calc_type == "LAMMPS":
-                    mod = importlib.import_module('pymatnext.ns_configs.ase_atoms.walks_lammps')
+                    mod = importlib.import_module(
+                        "pymatnext.ns_configs.ase_atoms.walks_lammps"
+                    )
                 self.walk_func[move] = getattr(mod, params[move]["function"])
             except:
-                raise NotImplementedError(f"Unknown calculator type {self.calc_type}, with function {params[move]['function']}")
-            
-        assert set(self.walk_func.keys()) == set(NSConfig_ASE_Atoms._walk_moves)
-
-        if self.walk_prob[NSConfig_ASE_Atoms._walk_moves.index("gmc")] > 0.0:
-            self.atoms.new_array("NS_velocities", np.zeros(self.atoms.positions.shape))
-
-    def _old_prep_walk(self, params, vol_per_atom=None):
-        """Set up data structures for walks based on params["configs"]["walk"]
-
-        Parameters
-        ----------
-        params: dict
-            information from [config.walk] toml section for step types and proportions in walk
-        vol_per_atom: float, default None
-            volume scale for setting default cell vol max step size. Required
-            for default max step sizes for pos_gmc_each_atom or cell_volume_per_atom
-            if they were not specified.
-        """
-        # trajectory lengths and (unnormalized) probabilities to achieve desired proportions
-        self.walk_traj_len = {
-            move: params[f"{move}_traj_len"] for move in NSConfig_ASE_Atoms._walk_moves
-        }
-        # list, so it can be used in Generator.choice, in same order as move type list
-        self.walk_prob = np.asarray(
-            [
-                params[f"{move}_proportion"] / self.walk_traj_len[move]
-                for move in NSConfig_ASE_Atoms._walk_moves
-            ]
-        )
-
-
-        if all(
-            [
-                params[f"{move}_proportion"] == 0.0
-                for move in NSConfig_ASE_Atoms._walk_moves
-            ]
-        ):
-            raise ValueError("At least some move must have proportion > 0")
-
-        # probabilty check and normalization
-        for move_i, move in enumerate(NSConfig_ASE_Atoms._walk_moves):
-            assert self.walk_prob[move_i] >= 0.0
-            if self.walk_prob[move_i] > 0.0:
-                assert self.walk_traj_len[move] > 0
-
-        self.walk_prob /= np.sum(self.walk_prob)
-
-        self.move_params = {}
-
-        # parameters for cell moves
-        self.move_params["cell"] = deepcopy(params["cell"])
-        normalization = sum(self.move_params["cell"]["submove_probabilities"].values())
-        self.move_params["cell"]["submove_probabilities"] = {
-            k: v / normalization
-            for k, v in self.move_params["cell"]["submove_probabilities"].items()
-        }
-        if "pressure_GPa" in self.move_params["cell"]:
-            if self.move_params["cell"].get("pressure", None) is not None:
-                raise ValueError("Got both cell.pressure and cell.pressure_GPa")
-            self.pressure = self.move_params["cell"]["pressure_GPa"] * ase.units.GPa
-        elif "pressure" in self.move_params["cell"]:
-            self.pressure = self.move_params["cell"]["pressure"]
-        else:
-            self.pressure = 0.0
-
-        # mu always needs to be defined, since it'll be used for energy shift
-        self.mu = np.zeros(len(ase.data.chemical_symbols))
-        # parameters for type moves
-        self.move_params["type"] = deepcopy(params["type"])
-        if self.move_params["type"]["sGC"]:
-            if self.move_params["type"].get("mu", {}) == 0:
-                raise ValueError("if 'sGC' is specified, 'mu' is also required")
-            mus = self.move_params["type"].pop("mu")
-            Zs = [int(k) for k in mus.keys()]
-            self.mu[Zs] = list(mus.values())
-
-            assert set(Zs) == set(self._Zs)
-
-        # max step sizes
-        self.max_step_size = params["max_step_size"].copy()
-        assert set(list(self.max_step_size.keys())) == set(self._step_size_params)
-        # max step size for position GMC and cell volume defaults are scaled to volume per atom
-        if self.max_step_size["pos_gmc_each_atom"] < 0.0:
-            self.max_step_size["pos_gmc_each_atom"] = (
-                vol_per_atom ** (1.0 / 3.0)
-            ) * np.abs(self.max_step_size["pos_gmc_each_atom"])
-        if self.max_step_size["cell_volume_per_atom"] < 0.0:
-            self.max_step_size["cell_volume_per_atom"] = vol_per_atom * np.abs(
-                self.max_step_size["cell_volume_per_atom"]
-            )
-        if self.max_step_size["cell_shear_per_rt3_atom"] < 0.0:
-            self.max_step_size["cell_shear_per_rt3_atom"] = (
-                vol_per_atom ** (1.0 / 3.0)
-            ) * np.abs(self.max_step_size["cell_shear_per_rt3_atom"])
-
-        # actual step sizes
-        self.step_size = params["step_size"].copy()
-        assert set(list(self.step_size.keys())) == set(self._step_size_params)
-        # default to half the max for each type
-        self.step_size = {
-            k: (v if v >= 0.0 else self.max_step_size[k] / 2.0)
-            for k, v in self.step_size.items()
-        }
-
-        # store lattice
-        self.lattice = params["lattice"]
-
-        # store function pointers for moves
-        self.walk_func = {}
-        if self.calc_type == "ASE":
-            from .walks_ase_calc import walk_pos_gmc, walk_cell, walk_type
-        elif self.calc_type == "LAMMPS":
-            from .walks_lammps import walk_pos_gmc, walk_cell, walk_type
-        else:
-            raise NotImplementedError(f"Unknown calculator type {self.calc_type}")
-
-        self.walk_func["gmc"] = walk_pos_gmc
-        self.walk_func["cell"] = walk_cell
-        self.walk_func["type"] = walk_type
+                raise NotImplementedError(
+                    f"Unknown calculator type {self.calc_type}, with function {params[move]['function']}"
+                )
 
         assert set(self.walk_func.keys()) == set(NSConfig_ASE_Atoms._walk_moves)
 
@@ -912,7 +798,7 @@ class NSConfig_ASE_Atoms:
         header_dict = {
             "n_extra_DOF_per_atom": 3,
             "pressure": self.pressure,
-        #    "flat_V_prior": self.move_params["cell"]["flat_V_prior"], # todo make header modular
+            #    "flat_V_prior": self.move_params["cell"]["flat_V_prior"], # todo make header modular
             "extras": ["volume", "natoms"]
             + ([f"x_{Z}" for Z in self._Zs] if len(self._Zs) > 1 else []),
         }
