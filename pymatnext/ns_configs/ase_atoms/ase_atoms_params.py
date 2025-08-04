@@ -11,11 +11,12 @@ param_defaults_ase_atoms = {
     "initial_rand_vol_per_atom": ["_REQ_", 1.0],
     "initial_rand_min_dist": ["_REQ_",{ "_IGNORE_": 1.0 }],
     "initial_rand_n_tries": 10,
+    "limit": { "_IGNORE_": True },
     "calculator": {
         "type": ["_REQ_", "calc_type"],
         "args": { "_IGNORE_": True }
     },
-    "walk": ["_REQ_", "_IGNORE_"]
+    "walk": ["_REQ_", "_IGNORE_"],
 }
 
 param_defaults_walk = {
@@ -26,8 +27,6 @@ param_defaults_walk = {
     "gmc_proportion": 1.0,
     "cell_proportion": 0.0,
     "type_proportion": 0.0,
-
-    "gmc_limit": { "_IGNORE_": True },
 
     "lattice": [1,1],
 
