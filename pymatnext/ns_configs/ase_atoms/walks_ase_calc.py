@@ -3,6 +3,7 @@ import warnings
 from ase.calculators.calculator import all_changes
 
 import numpy as np
+from copy import copy
 
 one_third = 1.0 / 3.0
 
@@ -118,14 +119,14 @@ def walk_lattice_single(ns_atoms, Emax, rng):
     atom_id = rng.choice(np.where(atoms.get_tags() == 1)[0])
     shift = np.array(
         [
-            rng.integers(0, atoms.lattice[0]) / atoms.lattice[0],
-            rng.integers(0, atoms.lattice[1]) / atoms.lattice[1],
+            rng.integers(0, ns_atoms.lattice[0]) / ns_atoms.lattice[0],
+            rng.integers(0, ns_atoms.lattice[1]) / ns_atoms.lattice[1],
             0,
         ]
     )
     tmp = atoms.get_scaled_positions(wrap=False)
     tmp[atom_id] += shift
-    atoms.get_scaled_positions(tmp)
+    atoms.set_scaled_positions(tmp)
 
     atoms.calc.calculate(
         atoms, properties=["free_energy", "forces"], system_changes=all_changes
@@ -136,12 +137,71 @@ def walk_lattice_single(ns_atoms, Emax, rng):
     if E >= Emax:  # accept or fail
         atoms.positions[...] = atoms.prev_positions
 
-        return [("pos_gmc_each_atom", 1, 0)]
+        return []
     else:
         atoms.info["NS_energy"][...] = E
         atoms.arrays["NS_forces"][...] = F
 
-        return [("pos_gmc_each_atom", 1, 1)]
+        return []
+
+
+def walk_random_single(ns_atoms, Emax, rng):
+    atoms = ns_atoms.atoms
+    atoms.prev_positions[...] = atoms.positions
+    atom_id = rng.choice(np.where(atoms.get_tags() == 1)[0])
+    tmp = atoms.get_scaled_positions()
+    
+    limits = np.array([[0.0, 1.0], [0.0, 1.0], [0.0, 1.0]])
+    for i, val in enumerate(["x", "y", "z"]):
+        if val in ns_atoms.limit.keys():
+            limits[i] = ns_atoms.limit[val]
+
+    tmp[atom_id] = rng.uniform(limits.T[0],limits.T[1], size=3)
+    atoms.set_scaled_positions(tmp)
+
+    atoms.calc.calculate(
+        atoms, properties=["free_energy", "forces"], system_changes=all_changes
+    )
+    E = atoms.calc.results.get("free_energy", atoms.calc.results.get("energy"))
+    F = atoms.calc.results["forces"]
+
+    if E >= Emax:  # accept or fail
+        atoms.positions[...] = atoms.prev_positions
+
+        return []
+    else:
+        atoms.info["NS_energy"][...] = E
+        atoms.arrays["NS_forces"][...] = F
+
+        return []
+    
+
+def walk_id_swap(ns_atoms, Emax, rng):
+    atoms = ns_atoms.atoms
+    Zs = list(atoms.numbers)
+    symbols = rng.choice(np.unique(atoms.numbers),2,replace=False)
+
+    id_0 = rng.choice(np.where(atoms.numbers*atoms.get_tags()==symbols[0])[0])
+    id_1 = rng.choice(np.where(atoms.numbers*atoms.get_tags()==symbols[1])[0])
+    
+    atoms.numbers[id_0] = symbols[1]
+    atoms.numbers[id_1] = symbols[0]
+
+    atoms.calc.calculate(
+        atoms, properties=["free_energy", "forces"], system_changes=all_changes
+    )
+    E = atoms.calc.results.get("free_energy", atoms.calc.results.get("energy"))
+    F = atoms.calc.results["forces"]
+
+    if E >= Emax:  # accept or fail
+        atoms.set_atomic_numbers(Zs)
+
+        return []
+    else:
+        atoms.info["NS_energy"][...] = E
+        atoms.arrays["NS_forces"][...] = F
+
+        return []
 
 
 def _min_aspect_ratio(cell):

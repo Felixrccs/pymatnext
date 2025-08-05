@@ -252,7 +252,25 @@ class NSConfig_ASE_Atoms:
 
             # create Atoms object or extend seed_config
             if isinstance(seed_config, Atoms):
-                tmp_seed = deepcopy(seed_config)
+                d = [" "]
+                i_iter = 0
+                # rattle precondensed atoms
+                while len(d) > 0 and i_iter < initial_rand_n_tries:
+                    tmp_seed = deepcopy(seed_config)
+                    # rattle precondensed atoms
+                    tmp_seed.positions += rng.normal(
+                        scale=0.2, size=seed_config.positions.shape
+                    ) * np.broadcast_to(
+                        tmp_seed.get_tags()[:, None], (len(tmp_seed), 3)
+                    )
+                    d = neighbor_list(
+                        "d",
+                        tmp_seed,
+                        cutoff=initial_rand_min_dist,
+                        self_interaction=False,
+                    )
+                    i_iter += 1
+
                 tmp_seed.extend(
                     Atoms(
                         numbers=numbers,
@@ -552,17 +570,15 @@ class NSConfig_ASE_Atoms:
         self.step_size = {}
         for move in NSConfig_ASE_Atoms._walk_moves:
             if "max_step" in params[move].keys():
-                for step_size in params[move]["max_step"].keys():
+                for step_size, value in params[move]["max_step"].items():
                     self.step_size[step_size] = params[move]["step"][step_size]
                     if params[move]["max_step"][step_size] < 0.0:
                         # max step size for position GMC and cell volume defaults are scaled to volume per atom
                         self.max_step_size[step_size] = (
                             vol_per_atom ** (1.0 / 3.0)
-                        ) * np.abs(params[move]["max_step"][step_size])
+                        ) * np.abs(value)
                     else:
-                        self.max_step_size[step_size] = params[move]["max_step"][
-                            step_size
-                        ]
+                        self.max_step_size[step_size] = value
 
         # self.max_step_size = params["max_step_size"].copy()
         assert set(list(self.max_step_size.keys())) == set(self._step_size_params)
@@ -601,6 +617,11 @@ class NSConfig_ASE_Atoms:
 
         if self.walk_prob[NSConfig_ASE_Atoms._walk_moves.index("gmc")] > 0.0:
             self.atoms.new_array("NS_velocities", np.zeros(self.atoms.positions.shape))
+
+        for move in NSConfig_ASE_Atoms._walk_moves:
+            if "attribute" in params[move].keys():
+                for key, value in params[move]["attribute"].items():
+                    setattr(self, key, value)
 
     def prepare(self):
         """do whatever is necessary to get ready for simulation. Here,
