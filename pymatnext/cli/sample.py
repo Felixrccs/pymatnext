@@ -12,6 +12,7 @@ import json
 import traceback
 
 from argparse import ArgumentParser
+from collections import deque
 
 import toml
 
@@ -289,6 +290,16 @@ def sample(args, MPI, NS_comm, walker_comm):
         print("params = ", end="")
         pprint.pprint(params, sort_dicts=False)
 
+
+    ns.step_size_tune(
+                n_configs=params_step_size_tune["n_configs"],
+                min_accept_rate=params_step_size_tune["min_accept_rate"],
+                max_accept_rate=params_step_size_tune["max_accept_rate"],
+                adjust_factor=params_step_size_tune["adjust_factor"],
+            )
+
+
+    acceptance = deque(maxlen=10)
     time_prev_stdout_report = time.time()
     for loop_iter in loop_iterable:
         if exit_cond(ns, loop_iter):
@@ -310,9 +321,9 @@ def sample(args, MPI, NS_comm, walker_comm):
             ns_file.flush()
 
         # tune step sizes at some iteration interval
-        if step_size_tune_interval > 0 and loop_iter % step_size_tune_interval == 0:
-            ns.step_size_tune(
-                n_configs=params_step_size_tune["n_configs"],
+        if step_size_tune_interval > 0 and loop_iter % step_size_tune_interval == 0 and loop_iter>0:
+            ns.step_size_tune_on_the_fly(
+                last_frec=acceptance,
                 min_accept_rate=params_step_size_tune["min_accept_rate"],
                 max_accept_rate=params_step_size_tune["max_accept_rate"],
                 adjust_factor=params_step_size_tune["adjust_factor"],
@@ -381,7 +392,7 @@ def sample(args, MPI, NS_comm, walker_comm):
             # walk a random config
             i_walk = ns.rng_local.integers(0, ns.n_configs_local)
 
-        ns.local_configs[i_walk].walk(ns.max_val, ns.local_walk_length, ns.rng_local)
+        acceptance.append(ns.local_configs[i_walk].walk(ns.max_val, ns.local_walk_length, ns.rng_local))
 
         # find new maximum
         ns.find_max()

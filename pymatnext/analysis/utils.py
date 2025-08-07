@@ -111,7 +111,7 @@ def analyse_T(T, Es, E_shift, Vs, extra_vals, log_a, flat_V_prior, N_atoms, kB, 
 
     if N_atoms is not None:
         N = sum_f(Z_term * N_atoms) / Z_term_sum
-        n_extra_DOF * N 
+        n_extra_DOF * N
 
     U = n_extra_DOF / (2.0 * beta) + U_pot + E_shift
 

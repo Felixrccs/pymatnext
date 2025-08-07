@@ -898,6 +898,7 @@ class NSConfig_ASE_Atoms:
         """
         # if we fixed the number of steps for every move type, and only varied proportions,
         # we could do all the rng in a single call
+        self.reset_walk_counters()
         self.atoms.calc = self.calc
         walk_len_so_far = 0
         while walk_len_so_far < walk_len:
@@ -917,7 +918,6 @@ class NSConfig_ASE_Atoms:
         #   self.atoms.info["NS_energy_shift"][...] = self.calc_NS_energy_shift()
         #   # make sure shifted energy <= Emax (is this enough, or do we need strictly <, and if so, how do we achieve that ?)
         #   self.atoms.info["NS_quantities"][0] = min(Emax, self.atoms.info["NS_energy"] + self.atoms.info["NS_energy_shift"])
-
         return self.n_att_acc
 
     @classmethod

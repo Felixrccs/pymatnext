@@ -35,8 +35,18 @@ class NS:
     extra_config: bool, default False
         allocate storage for an extra config, e.g. to use as a buffer
     """
-    def __init__(self, params_ns, comm, MPI, random_seed, params_configs, output_filename_prefix, different_n_rng_local=False,
-                 extra_config=False):
+
+    def __init__(
+        self,
+        params_ns,
+        comm,
+        MPI,
+        random_seed,
+        params_configs,
+        output_filename_prefix,
+        different_n_rng_local=False,
+        extra_config=False,
+    ):
         check_fill_defaults(params_ns, param_defaults, label="ns")
 
         self.comm = comm
@@ -47,8 +57,12 @@ class NS:
         # get configuration constructor from module that defines exactly one class whose name starts with NSConfig_
         print("###### configs_module ########")
         nsconfig_mod = importlib.import_module(params_ns["configs_module"])
-        nsconfig_classes = [symb for symb in dir(nsconfig_mod) if symb.startswith("NSConfig_")]
-        assert len(nsconfig_classes) == 1  # Internal: check if only one config mode importet
+        nsconfig_classes = [
+            symb for symb in dir(nsconfig_mod) if symb.startswith("NSConfig_")
+        ]
+        assert (
+            len(nsconfig_classes) == 1
+        )  # Internal: check if only one config mode importet
         self.NSConfig = getattr(nsconfig_mod, nsconfig_classes[0])
         self.NSConfig.initialize(params_configs)
 
@@ -61,7 +75,9 @@ class NS:
             self.max_n_configs_local = self.n_configs_global // self.comm.size
             # self.n_configs_global_offset = self.n_configs_local * self.comm.rank
         else:
-            raise ValueError(f"Number of configurations {self.n_configs_global} must be divisible by number of processes {self.comm.size}")
+            raise ValueError(
+                f"Number of configurations {self.n_configs_global} must be divisible by number of processes {self.comm.size}"
+            )
 
         # number of quantities depends on the type of config, so these must want for call to init_configs()
         self._allgatherv_counts = None
@@ -82,7 +98,9 @@ class NS:
             snapshot_state_file = old_state_files[-1]
             self.snapshot_iter = NS._iter_from_state_file(snapshot_state_file)
 
-            initial_config_file = snapshot_state_file.replace(".state.json", f".configs{self.NSConfig.filename_suffix}")
+            initial_config_file = snapshot_state_file.replace(
+                ".state.json", f".configs{self.NSConfig.filename_suffix}"
+            )
             with open(snapshot_state_file) as fin:
                 snapshot_state = json.load(fin)
         else:
@@ -94,9 +112,12 @@ class NS:
                 initial_config_file = None
             self.snapshot_iter = -1
 
-        self.init_rngs(random_seed, snapshot_state.get("rngs", None), different_nlocal=different_n_rng_local)
+        self.init_rngs(
+            random_seed,
+            snapshot_state.get("rngs", None),
+            different_nlocal=different_n_rng_local,
+        )
         self.init_configs(params_configs, initial_config_file, extra=extra_config)
-
 
     def report_store(self, loop_iter):
         """Store quantities needed for NSConfig-specific report on progress of NS iteration
@@ -107,7 +128,6 @@ class NS:
             current NS loop iteration number
         """
         return self.NSConfig.report_store(loop_iter, self.max_val)
-
 
     def report(self):
         """Write report on progress of NS iteration
@@ -131,7 +151,7 @@ class NS:
         -------
         iter_i: int iteration number
         """
-        return int(re.sub('.state.json', '', re.sub(r'.*iter_', '', filename)))
+        return int(re.sub(".state.json", "", re.sub(r".*iter_", "", filename)))
 
     @staticmethod
     def _old_state_files(output_filename_prefix):
@@ -151,13 +171,19 @@ class NS:
 
         prefix_path = Path(output_filename_prefix)
 
-        old_state_files = [str(f) for f in prefix_path.parent.glob(prefix_path.name + ".iter_*.state.json")]
-        old_state_files = sorted(old_state_files, key = lambda filename: NS._iter_from_state_file(filename))
+        old_state_files = [
+            str(f)
+            for f in prefix_path.parent.glob(prefix_path.name + ".iter_*.state.json")
+        ]
+        old_state_files = sorted(
+            old_state_files, key=lambda filename: NS._iter_from_state_file(filename)
+        )
 
         return old_state_files
 
-
-    def init_rngs(self, random_seed=None, bit_generator_states=None, different_nlocal=False):
+    def init_rngs(
+        self, random_seed=None, bit_generator_states=None, different_nlocal=False
+    ):
         """Initialize rngs from previous state in a dict, or from a seed
 
         Parameters
@@ -178,7 +204,6 @@ class NS:
         if bit_generator_states is not None:
             self.read_rngs(bit_generator_states, different_nlocal=different_nlocal)
 
-
     def init_configs(self, params_configs, configs_file=None, extra=False):
         """initialize all configurations by reading or constructing objects on head node and
         sending them to each compute node
@@ -197,8 +222,9 @@ class NS:
             assert self.snapshot_iter < 0
 
         # define generators for new configs from file or randomly generated
-        new_configs_generator = self.NSConfig.new_configs_generator(self.n_configs_global,
-                params_configs, self.rng_global, configs_file)
+        new_configs_generator = self.NSConfig.new_configs_generator(
+            self.n_configs_global, params_configs, self.rng_global, configs_file
+        )
 
         # generate on root, send to each node
         self.local_configs = []
@@ -207,19 +233,29 @@ class NS:
                 if config_i == 0:
                     first_config = new_config
                 if config_i >= self.n_configs_global:
-                    raise RuntimeError(f"Got too many configs (expected {self.n_configs_global}) from new config generator {new_configs_generator}")
+                    raise RuntimeError(
+                        f"Got too many configs (expected {self.n_configs_global}) from new config generator {new_configs_generator}"
+                    )
 
                 # Check that all step sizes are the same. Maybe instead we should just copy from first?
-                assert new_config.step_size == first_config.step_size, f"Mismatched step size for config {config_i} {new_config.step_size} != 0 {first_config.step_size}"
+                assert (
+                    new_config.step_size == first_config.step_size
+                ), f"Mismatched step size for config {config_i} {new_config.step_size} != 0 {first_config.step_size}"
 
                 target_rank = config_i // self.max_n_configs_local
                 if target_rank == self.comm.rank:
                     self.local_configs.append(new_config)
                 else:
-                    self.comm.send(new_config, target_rank, tag=15 + config_i % self.max_n_configs_local)
+                    self.comm.send(
+                        new_config,
+                        target_rank,
+                        tag=15 + config_i % self.max_n_configs_local,
+                    )
 
             if config_i + 1 != self.n_configs_global:
-                raise RuntimeError(f"Got not enough configs ({config_i + 1}) from config generator, expected {self.n_configs_global}")
+                raise RuntimeError(
+                    f"Got not enough configs ({config_i + 1}) from config generator, expected {self.n_configs_global}"
+                )
         else:
             for config_i in range(self.n_configs_local):
                 self.local_configs.append(self.comm.recv(source=0, tag=15 + config_i))
@@ -233,24 +269,34 @@ class NS:
         # need to move initialization of the Zs to a classmethod
         n_quantities = self.local_configs[0].n_quantities
 
-        self._allgatherv_counts = [self.max_n_configs_local * n_quantities] * self.comm.size
-        self._allgatherv_displs = [i * (self.max_n_configs_local * n_quantities) for i in range(self.comm.size)]
+        self._allgatherv_counts = [
+            self.max_n_configs_local * n_quantities
+        ] * self.comm.size
+        self._allgatherv_displs = [
+            i * (self.max_n_configs_local * n_quantities) for i in range(self.comm.size)
+        ]
 
-        self._ns_quants_global = np.finfo(np.float64).min * np.ones((self.comm.size, self.max_n_configs_local, n_quantities))
+        self._ns_quants_global = np.finfo(np.float64).min * np.ones(
+            (self.comm.size, self.max_n_configs_local, n_quantities)
+        )
 
         if extra:
             # construct extra config to use as a buffer, contents don't matter
-            self.extra_config = self.NSConfig(params_configs, rng=None,
-                                              compression=self.n_configs_global / (self.n_configs_global + 1),
-                                              allocate_only=True)
+            self.extra_config = self.NSConfig(
+                params_configs,
+                rng=None,
+                compression=self.n_configs_global / (self.n_configs_global + 1),
+                allocate_only=True,
+            )
 
         # re-sync after root process used rng_global to generate configs
-        self.rng_global.bit_generator.state = self.comm.bcast(self.rng_global.bit_generator.state, root = 0)
-
+        self.rng_global.bit_generator.state = self.comm.bcast(
+            self.rng_global.bit_generator.state, root=0
+        )
 
     def find_max(self):
         """Find maximum of nested sampling quantity, as well as its location (parallel process rank and
-        local index), and other (system specific) quantities 
+        local index), and other (system specific) quantities
 
         Stores in self.rank_of_max, self.local_ind_of_max, self.max_val
         """
@@ -258,13 +304,25 @@ class NS:
         # NOTE: if bandwidth is limiting, rather than latency (which seems unlikely),
         # might be faster to gather only NS quantity, find max location, then bcast all
         # other quantities from that location
-        self._ns_quants_global[self.comm.rank][:self.n_configs_local][:] = [config.ns_quantities() for config in self.local_configs]
-        self.comm.Allgatherv(self.MPI.IN_PLACE, [self._ns_quants_global, self._allgatherv_counts, self._allgatherv_displs, self.MPI.DOUBLE])
+        self._ns_quants_global[self.comm.rank][: self.n_configs_local][:] = [
+            config.ns_quantities() for config in self.local_configs
+        ]
+        self.comm.Allgatherv(
+            self.MPI.IN_PLACE,
+            [
+                self._ns_quants_global,
+                self._allgatherv_counts,
+                self._allgatherv_displs,
+                self.MPI.DOUBLE,
+            ],
+        )
 
         # find max of NS quantity (index 0 in each config's quantities) with pure numpy ops
 
         # local index of max value on each proc
-        local_ind_of_max_in_each_proc = np.argmax(self._ns_quants_global[:, :, 0], axis=1)
+        local_ind_of_max_in_each_proc = np.argmax(
+            self._ns_quants_global[:, :, 0], axis=1
+        )
         # max value on each proc
         val_of_max_in_each_proc = np.max(self._ns_quants_global[:, :, 0], axis=1)
 
@@ -275,8 +333,9 @@ class NS:
         # global max value
         self.max_val = val_of_max_in_each_proc[self.rank_of_max]
         # other quantities of max value config
-        self.max_quants = self._ns_quants_global[self.rank_of_max, self.local_ind_of_max, 1:]
-
+        self.max_quants = self._ns_quants_global[
+            self.rank_of_max, self.local_ind_of_max, 1:
+        ]
 
     def global_ind(self, rank, local_ind):
         """global index corresponding to a rank and local index
@@ -294,7 +353,6 @@ class NS:
         """
         return rank * self.max_n_configs_local + local_ind
 
-
     def local_ind(self, global_ind):
         """rank and local index corresponding to a global index
 
@@ -307,11 +365,76 @@ class NS:
         --------
         rank, local_ind: rank and local index
         """
+
+        return (
+            global_ind // self.max_n_configs_local,
+            global_ind % self.max_n_configs_local,
+        )
+
+    def step_size_tune_on_the_fly(
+        self, last_frec, min_accept_rate=0.25, max_accept_rate=0.5, adjust_factor=1.25
+    ):
+        max_step_size = self.local_configs[0].max_step_size
+        step_size = {
+            k: self.local_configs[0].step_size[k] / max_step_size[k]
+            for k in max_step_size
+        }
+
+        accept_freq = {k: np.zeros(2, dtype=int) for k in max_step_size}
+        for freq_i in last_frec:
+            for k in accept_freq:
+                accept_freq[k] += freq_i[k]
+
+        for param_name, max_val in max_step_size.items():
+            print(
+                f"step_size_tune initial {param_name} size {self.local_configs[0].step_size[param_name]} max {max_val} freq {accept_freq[param_name]}"
+            )
+
+        for param_name in max_step_size:
+            if accept_freq[param_name][0] > 0:
+                accept_rate = accept_freq[param_name][1] / accept_freq[param_name][0]
+
+                step_size[param_name] = self._tune_from_accept_rate_simple(
+                    step_size[param_name],
+                    accept_rate,
+                    min_accept_rate,
+                    max_accept_rate,
+                    adjust_factor,
+                )
+            
+
+        new_step_size = {k: step_size[k] * max_step_size[k] for k in max_step_size}
+        for ns_config in self.local_configs:
+            ns_config.step_size = new_step_size
+            # make sure that config used as buffer also has correct step_size
+        if self.extra_config:
+            self.extra_config.step_size = new_step_size
+
+        if any(np.asarray(list(step_size.values())) < 1.0e-12):
+            raise RuntimeError(
+                f"Stepsize got too small with automatic tuning {step_size}"
+            )
         
-        return global_ind // self.max_n_configs_local, global_ind % self.max_n_configs_local
+        if self.comm.rank == 0:
+            for param_name, max_val in max_step_size.items():
+                print(
+                    f"step_size_tune final {param_name} size {self.local_configs[0].step_size[param_name]}"
+                )
 
+    def _tune_from_accept_rate_simple(
+        self, step_size, accept_rate, min_accept_rate, max_accept_rate, adjust_factor
+    ):
+        if accept_rate < min_accept_rate:
+            step_size /= adjust_factor
+        elif accept_rate > max_accept_rate:
+            step_size *= adjust_factor
+            if step_size >= 1.0:
+                step_size = 1.0
+        return step_size
 
-    def step_size_tune(self, n_configs=1, min_accept_rate=0.25, max_accept_rate=0.5, adjust_factor=1.25):
+    def step_size_tune(
+        self, n_configs=1, min_accept_rate=0.25, max_accept_rate=0.5, adjust_factor=1.25
+    ):
         """tune step sizes with pilot walks
 
         Parameters
@@ -326,7 +449,10 @@ class NS:
             factor to adjust step size by
         """
         max_step_size = self.local_configs[0].max_step_size
-        step_size = {k: self.local_configs[0].step_size[k] / max_step_size[k] for k in max_step_size}
+        step_size = {
+            k: self.local_configs[0].step_size[k] / max_step_size[k]
+            for k in max_step_size
+        }
 
         last_too_small = {k: False for k in max_step_size}
         last_too_big = {k: False for k in max_step_size}
@@ -346,17 +472,23 @@ class NS:
                     self.local_configs[0].copy_contents(ns_config)
 
                 self.local_configs[0].reset_walk_counters()
-                accept_freq_contribution = self.local_configs[0].walk(self.max_val, self.local_walk_length, self.rng_local)
+                accept_freq_contribution = self.local_configs[0].walk(
+                    self.max_val, self.local_walk_length, self.rng_local
+                )
                 for k in accept_freq:
                     accept_freq[k] += accept_freq_contribution[k]
 
             # order of dict must be same among MPI tasks, but this should really be a safe thing to assume
-            accept_freq_values = self.comm.allreduce(np.asarray(list(accept_freq.values())), self.MPI.SUM)
+            accept_freq_values = self.comm.allreduce(
+                np.asarray(list(accept_freq.values())), self.MPI.SUM
+            )
             accept_freq = {k: v for k, v in zip(accept_freq.keys(), accept_freq_values)}
 
             if first_iter and self.comm.rank == 0:
                 for param_name, max_val in max_step_size.items():
-                    print(f"step_size_tune initial {param_name} size {self.local_configs[0].step_size[param_name]} max {max_val} freq {accept_freq[param_name]}")
+                    print(
+                        f"step_size_tune initial {param_name} size {self.local_configs[0].step_size[param_name]} max {max_val} freq {accept_freq[param_name]}"
+                    )
                 first_iter = False
 
             # It looks like the following should always give the same values, hence exit
@@ -369,10 +501,24 @@ class NS:
             done = []
             for param_name in max_step_size:
                 if accept_freq[param_name][0] > 0:
-                    accept_rate = accept_freq[param_name][1] / accept_freq[param_name][0]
-                    step_size[param_name], done_i, last_too_small[param_name], last_too_big[param_name] = self._tune_from_accept_rate(
-                        step_size[param_name], last_too_small[param_name], last_too_big[param_name], accept_rate,
-                        min_accept_rate, max_accept_rate, adjust_factor)
+                    accept_rate = (
+                        accept_freq[param_name][1] / accept_freq[param_name][0]
+                    )
+
+                    (
+                        step_size[param_name],
+                        done_i,
+                        last_too_small[param_name],
+                        last_too_big[param_name],
+                    ) = self._tune_from_accept_rate(
+                        step_size[param_name],
+                        last_too_small[param_name],
+                        last_too_big[param_name],
+                        accept_rate,
+                        min_accept_rate,
+                        max_accept_rate,
+                        adjust_factor,
+                    )
                 else:
                     done_i = True
 
@@ -387,24 +533,35 @@ class NS:
                 self.extra_config.step_size = new_step_size
 
             # if self.comm.rank == 0:
-                # print("step_size_tune done", list(zip(done, accept_freq, step_size)))
+            # print("step_size_tune done", list(zip(done, accept_freq, step_size)))
 
             if all(done):
                 break
 
             if any(np.asarray(list(step_size.values())) < 1.0e-12):
-                raise RuntimeError(f"Stepsize got too small with automatic tuning {step_size}")
+                raise RuntimeError(
+                    f"Stepsize got too small with automatic tuning {step_size}"
+                )
 
         if self.comm.rank == 0:
             for param_name, max_val in max_step_size.items():
-                print(f"step_size_tune final {param_name} size {self.local_configs[0].step_size[param_name]}")
+                print(
+                    f"step_size_tune final {param_name} size {self.local_configs[0].step_size[param_name]}"
+                )
 
         # restore to original config
         self.local_configs[0].restore(local_configs_0_data)
 
-
-    def _tune_from_accept_rate(self, step_size, last_too_small, last_too_big, accept_rate,
-                               min_accept_rate, max_accept_rate, adjust_factor):
+    def _tune_from_accept_rate(
+        self,
+        step_size,
+        last_too_small,
+        last_too_big,
+        accept_rate,
+        min_accept_rate,
+        max_accept_rate,
+        adjust_factor,
+    ):
         """Adjust the step size based on the acceptance rate of the current step, and
         what happened in previous steps
 
@@ -470,7 +627,6 @@ class NS:
         # print("BOB post adjust returning")
         return step_size, False, last_too_small, last_too_big
 
-
     def snapshot(self, loop_iter, output_filename_prefix, save_old=2):
         """write a snapshot of the NS system
 
@@ -486,7 +642,7 @@ class NS:
         if self.comm.rank == 0:
             old_state_files = NS._old_state_files(output_filename_prefix)
             if len(old_state_files) > save_old - 1:
-                old_state_files = old_state_files[:-(save_old-1)]
+                old_state_files = old_state_files[: -(save_old - 1)]
             else:
                 old_state_files = []
 
@@ -496,16 +652,24 @@ class NS:
 
         # save snapshots
         if self.comm.rank == 0:
-            with open(output_filename_prefix_iter + f".configs{config_suffix}", "w")  as fout:
+            with open(
+                output_filename_prefix_iter + f".configs{config_suffix}", "w"
+            ) as fout:
                 # write own data
                 for local_config in self.local_configs:
-                    local_config.write(fout, extra_info={"from_rank": 0}, full_state=True)
+                    local_config.write(
+                        fout, extra_info={"from_rank": 0}, full_state=True
+                    )
 
                 # receive from each
-                for remote_config_i in range(self.n_configs_local, self.n_configs_global):
+                for remote_config_i in range(
+                    self.n_configs_local, self.n_configs_global
+                ):
                     source_rank = remote_config_i // self.max_n_configs_local
                     self.extra_config.recv(source_rank, self.comm, self.MPI)
-                    self.extra_config.write(fout, extra_info={"from_rank": source_rank}, full_state=True)
+                    self.extra_config.write(
+                        fout, extra_info={"from_rank": source_rank}, full_state=True
+                    )
         else:
             for local_config in self.local_configs:
                 local_config.send(0, self.comm, self.MPI)
@@ -519,18 +683,28 @@ class NS:
 
         # make sure writes did something
         if self.comm.rank == 0:
-            if Path(output_filename_prefix_iter + f".configs{config_suffix}").stat().st_size <= 0:
-                raise RuntimeError(f"Failed to write to snapshot {output_filename_prefix_iter}.configs{config_suffix} file, refusing to continue")
+            if (
+                Path(output_filename_prefix_iter + f".configs{config_suffix}")
+                .stat()
+                .st_size
+                <= 0
+            ):
+                raise RuntimeError(
+                    f"Failed to write to snapshot {output_filename_prefix_iter}.configs{config_suffix} file, refusing to continue"
+                )
             if Path(output_filename_prefix_iter + ".state.json").stat().st_size <= 0:
-                raise RuntimeError(f"Failed to write to snapshot {output_filename_prefix_iter}.state.json file, refusing to continue")
+                raise RuntimeError(
+                    f"Failed to write to snapshot {output_filename_prefix_iter}.state.json file, refusing to continue"
+                )
 
         # wipe older snapshots
         if self.comm.rank == 0 and len(old_state_files) > 0:
             for old_file in old_state_files:
                 print(f"Wiping old snapshot file {old_file}")
                 Path(old_file).unlink()
-                Path(old_file.replace(".state.json", f".configs{config_suffix}")).unlink()
-
+                Path(
+                    old_file.replace(".state.json", f".configs{config_suffix}")
+                ).unlink()
 
     def read_rngs(self, bit_generator_states, different_nlocal=False):
         """read rngs from a dict
@@ -544,8 +718,13 @@ class NS:
             in dict (dropping extras or generating new ones, as needed)
         """
         if self.comm.rank == 0:
-            if len(bit_generator_states["locals"]) != self.comm.size and not different_nlocal:
-                raise RuntimeError(f"Got local rngs states for {len(bit_generator_states['locals'])} procs, but current number is {self.comm.size}")
+            if (
+                len(bit_generator_states["locals"]) != self.comm.size
+                and not different_nlocal
+            ):
+                raise RuntimeError(
+                    f"Got local rngs states for {len(bit_generator_states['locals'])} procs, but current number is {self.comm.size}"
+                )
         else:
             bit_generator_states = {"global": None, "locals": []}
 
@@ -554,20 +733,24 @@ class NS:
         self.rng_global.bit_generator.state = new_state
 
         # scatter or generate locals
-        n_locals = self.comm.bcast(len(bit_generator_states["locals"]), root = 0)
+        n_locals = self.comm.bcast(len(bit_generator_states["locals"]), root=0)
         if n_locals == self.comm.size:
-            self.rng_local.bit_generator.state = self.comm.scatter(bit_generator_states["locals"][:self.comm.size], root=0)
+            self.rng_local.bit_generator.state = self.comm.scatter(
+                bit_generator_states["locals"][: self.comm.size], root=0
+            )
         else:
             # number of read-in generators doesn't match number needed, start over by generating all from global rng
-            self.rng_global, self.rng_local = new_rngs(self.comm.rank, None, self.rng_global)
-
+            self.rng_global, self.rng_local = new_rngs(
+                self.comm.rank, None, self.rng_global
+            )
 
     def write_rngs(self):
-        """Write rngs to a file
-        """
+        """Write rngs to a file"""
         if self.comm.rank == 0:
             bit_generator_states = {"global": self.rng_global.bit_generator.state}
-            bit_generator_states["locals"] = self.comm.gather(self.rng_local.bit_generator.state, root=0)
+            bit_generator_states["locals"] = self.comm.gather(
+                self.rng_local.bit_generator.state, root=0
+            )
         else:
             bit_generator_states = None
             _ = self.comm.gather(self.rng_local.bit_generator.state, root=0)
