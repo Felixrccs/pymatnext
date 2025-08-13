@@ -170,6 +170,7 @@ def sample(args, MPI, NS_comm, walker_comm):
             )
 
     params_global = params["global"]
+    print(params_global)
 
     # output file prefix
     output_filename_prefix = (
@@ -209,6 +210,7 @@ def sample(args, MPI, NS_comm, walker_comm):
     snapshot_interval = params_global["snapshot_interval"]
     stdout_report_interval_s = params_global["stdout_report_interval_s"]
     step_size_tune_interval = params_step_size_tune["interval"]
+    step_size_tune_last_n_iterations = params_step_size_tune["last_n_iterations"]
     # WARNING: clone_history_file not restartable
     if params_global["clone_history"]:
         clone_history_file = open(f"{output_filename_prefix}.clone_history", "w")
@@ -299,7 +301,7 @@ def sample(args, MPI, NS_comm, walker_comm):
             )
 
 
-    acceptance = deque(maxlen=10)
+    acceptance = deque(maxlen=step_size_tune_last_n_iterations)
     time_prev_stdout_report = time.time()
     for loop_iter in loop_iterable:
         if exit_cond(ns, loop_iter):

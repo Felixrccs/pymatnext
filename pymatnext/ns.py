@@ -374,6 +374,19 @@ class NS:
     def step_size_tune_on_the_fly(
         self, last_frec, min_accept_rate=0.25, max_accept_rate=0.5, adjust_factor=1.25
     ):
+        """tune step sizes from last n walks
+
+        Parameters
+        ----------
+        last_frec: list of n tupels
+            list of frequancies of the last n walks
+        min_accept_rate: float, default 0.25
+            minimum allowed acceptance rate
+        max_accept_rate: float, default 0.5
+            maximum allowed acceptance rate
+        adjust_factor: float, default 1.25
+            factor to adjust step size by
+        """
         max_step_size = self.local_configs[0].max_step_size
         step_size = {
             k: self.local_configs[0].step_size[k] / max_step_size[k]
@@ -385,15 +398,11 @@ class NS:
             for k in accept_freq:
                 accept_freq[k] += freq_i[k]
 
-        for param_name, max_val in max_step_size.items():
-            print(
-                f"step_size_tune initial {param_name} size {self.local_configs[0].step_size[param_name]} max {max_val} freq {accept_freq[param_name]}"
-            )
 
         for param_name in max_step_size:
             if accept_freq[param_name][0] > 0:
                 accept_rate = accept_freq[param_name][1] / accept_freq[param_name][0]
-
+                # single step adjustion
                 step_size[param_name] = self._tune_from_accept_rate_simple(
                     step_size[param_name],
                     accept_rate,
@@ -401,9 +410,18 @@ class NS:
                     max_accept_rate,
                     adjust_factor,
                 )
+    
+
             
 
         new_step_size = {k: step_size[k] * max_step_size[k] for k in max_step_size}
+
+        if self.comm.rank == 0:
+            for param_name, max_val in max_step_size.items():
+                print(
+                    f"step_size_tune {param_name} size {self.local_configs[0].step_size[param_name]} ==> size {new_step_size[param_name]} max {max_val} freq {accept_freq[param_name]}"
+                )
+
         for ns_config in self.local_configs:
             ns_config.step_size = new_step_size
             # make sure that config used as buffer also has correct step_size
@@ -415,15 +433,31 @@ class NS:
                 f"Stepsize got too small with automatic tuning {step_size}"
             )
         
-        if self.comm.rank == 0:
-            for param_name, max_val in max_step_size.items():
-                print(
-                    f"step_size_tune final {param_name} size {self.local_configs[0].step_size[param_name]}"
-                )
+        
 
     def _tune_from_accept_rate_simple(
         self, step_size, accept_rate, min_accept_rate, max_accept_rate, adjust_factor
     ):
+        """Adjust the step size based on the acceptance rate of the current step
+
+        Parameters
+        ----------
+        step_size: float
+            current step size
+        accept_rate: float
+            acceptance rate for most recent walk
+        min_accept_rate: float
+            minimum acceptance rate to aim for
+        max_accept_rate: float
+            maximum acceptance rate to aim for
+        adjust_factor: float
+            factor to multiply/divide by
+
+        Returns
+        -------
+        step_size: int, bool, bool, bool
+            new step size
+        """
         if accept_rate < min_accept_rate:
             step_size /= adjust_factor
         elif accept_rate > max_accept_rate:

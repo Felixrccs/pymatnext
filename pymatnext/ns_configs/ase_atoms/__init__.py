@@ -64,12 +64,12 @@ class NSConfig_ASE_Atoms:
     n_quantities = -1
 
     # todo step size params not modular
-    _step_size_params = [
-        "pos_gmc_each_atom",
-        #    "cell_volume_per_atom",
-        #    "cell_shear_per_rt3_atom",
-        #    "cell_stretch",
-    ]
+    _step_size_params = []
+    # "pos_gmc_each_atom",
+    #    "cell_volume_per_atom",
+    #    "cell_shear_per_rt3_atom",
+    #    "cell_stretch",
+
     _max_E_hist = collections.deque(maxlen=1000)
     _walk_moves = []
     _Zs = []
@@ -147,6 +147,7 @@ class NSConfig_ASE_Atoms:
         for key in params["walk"]:
             cls._walk_moves.append(key)
 
+
     def __init__(
         self,
         params,
@@ -191,7 +192,7 @@ class NSConfig_ASE_Atoms:
                 if val in self.limit.keys():
                     initial_limits[i] = self.limit[val]
 
-            initial_rand_min_dist = params["initial_rand_min_dist"]
+            self.min_dist = params["initial_rand_min_dist"]
             initial_rand_n_tries = params["initial_rand_n_tries"]
 
             # dimensions and PBC
@@ -266,7 +267,7 @@ class NSConfig_ASE_Atoms:
                     d = neighbor_list(
                         "d",
                         tmp_seed,
-                        cutoff=initial_rand_min_dist,
+                        cutoff=self.min_dist,
                         self_interaction=False,
                     )
                     i_iter += 1
@@ -277,7 +278,7 @@ class NSConfig_ASE_Atoms:
                         cell=cell,
                         scaled_positions=scaled_positions,
                         pbc=pbc,
-                        tags=np.ones(n_atoms),
+                        tags=np.ones(n_atoms) * 2,
                     )
                 )
                 self.atoms = AtomsContiguousStorage(tmp_seed)
@@ -287,13 +288,14 @@ class NSConfig_ASE_Atoms:
                     cell=cell,
                     scaled_positions=scaled_positions,
                     pbc=pbc,
+                    tags=np.ones(n_atoms),
                 )
 
-            if not allocate_only and initial_rand_min_dist is not None:
+            if not allocate_only and self.min_dist is not None:
                 d = neighbor_list(
                     "d",
                     self.atoms,
-                    cutoff=initial_rand_min_dist,
+                    cutoff=self.min_dist,
                     self_interaction=False,
                 )
                 i_iter = 0
@@ -311,7 +313,7 @@ class NSConfig_ASE_Atoms:
                     d = neighbor_list(
                         "d",
                         self.atoms,
-                        cutoff=initial_rand_min_dist,
+                        cutoff=self.min_dist,
                         self_interaction=False,
                     )
                     i_iter += 1
@@ -570,20 +572,15 @@ class NSConfig_ASE_Atoms:
         self.step_size = {}
         for move in NSConfig_ASE_Atoms._walk_moves:
             if "max_step" in params[move].keys():
-                for step_size, value in params[move]["max_step"].items():
-                    self.step_size[step_size] = params[move]["step"][step_size]
-                    if params[move]["max_step"][step_size] < 0.0:
-                        # max step size for position GMC and cell volume defaults are scaled to volume per atom
-                        self.max_step_size[step_size] = (
-                            vol_per_atom ** (1.0 / 3.0)
-                        ) * np.abs(value)
-                    else:
-                        self.max_step_size[step_size] = value
-
-        # self.max_step_size = params["max_step_size"].copy()
-        assert set(list(self.max_step_size.keys())) == set(self._step_size_params)
-
-        assert set(list(self.step_size.keys())) == set(self._step_size_params)
+                self._step_size_params.append(move)
+                self.step_size[move] = params[move]["step"]
+                if params[move]["max_step"] < 0.0:
+                    # max step size for position GMC and cell volume defaults are scaled to volume per atom
+                    self.max_step_size[move] = (vol_per_atom ** (1.0 / 3.0)) * np.abs(
+                        params[move]["max_step"]
+                    )
+                else:
+                    self.max_step_size[move] = params[move]["max_step"]
 
         # default to half the max for each type
         self.step_size = {
@@ -618,10 +615,20 @@ class NSConfig_ASE_Atoms:
         if self.walk_prob[NSConfig_ASE_Atoms._walk_moves.index("gmc")] > 0.0:
             self.atoms.new_array("NS_velocities", np.zeros(self.atoms.positions.shape))
 
+        # initalize walk params as attributes
         for move in NSConfig_ASE_Atoms._walk_moves:
             if "attribute" in params[move].keys():
                 for key, value in params[move]["attribute"].items():
                     setattr(self, key, value)
+
+        # initalize tags for diffenrent atom moves
+        self.tags = {}
+        for move in NSConfig_ASE_Atoms._walk_moves:
+            if "tags" in params[move].keys():
+                self.tags[move] = params[move]["tags"]
+            else:
+                self.tags[move] = 0
+        
 
     def prepare(self):
         """do whatever is necessary to get ready for simulation. Here,
@@ -905,7 +912,7 @@ class NSConfig_ASE_Atoms:
             move = rng.choice(NSConfig_ASE_Atoms._walk_moves, p=self.walk_prob)
 
             # returns list of tuples with move param attempt/success statistics
-            n_att_acc_walk = self.walk_func[move](self, Emax, rng)
+            n_att_acc_walk = self.walk_func[move](self, Emax, rng, move)
             for param, n_att, n_acc in n_att_acc_walk:
                 self.n_att_acc[param] += (n_att, n_acc)
 

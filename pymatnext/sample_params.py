@@ -16,7 +16,8 @@ param_defaults = {
             "n_configs": 1,
             "min_accept_rate": 0.25,
             "max_accept_rate": 0.5,
-            "adjust_factor": 1.25
+            "adjust_factor": 1.25,
+            "last_n_iterations": 10,
         },
         "clone_history": False
     },

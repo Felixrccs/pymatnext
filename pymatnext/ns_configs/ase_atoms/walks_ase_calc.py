@@ -1,6 +1,7 @@
 import warnings
 
 from ase.calculators.calculator import all_changes
+from ase.neighborlist import neighbor_list
 
 import numpy as np
 from copy import copy
@@ -8,7 +9,7 @@ from copy import copy
 one_third = 1.0 / 3.0
 
 
-def walk_pos_gmc(ns_atoms, Emax, rng):
+def walk_pos_gmc(ns_atoms, Emax, rng, move):
     """Walk atomic positions using Galilean Monte-Carlo
 
     Parameters
@@ -22,12 +23,12 @@ def walk_pos_gmc(ns_atoms, Emax, rng):
 
     Returns
     -------
-    [("pos_gmc_each_atom", int n_attempt, int n_success)] info on move params and attempts/successes
+    [(move, int n_attempt, int n_success)] info on move params and attempts/successes
     """
     atoms = ns_atoms.atoms
     # new random velocities
     atoms.arrays["NS_velocities"][...] = rng.normal(
-        scale=ns_atoms.step_size["pos_gmc_each_atom"], size=atoms.positions.shape
+        scale=ns_atoms.step_size[move], size=atoms.positions.shape
     )
 
     # below here operate only on _internal_ energy, without any "+ P V - mu N" shifts
@@ -41,8 +42,10 @@ def walk_pos_gmc(ns_atoms, Emax, rng):
     n_failed_in_a_row = 0
 
     # consider fixed atoms
-    moving = np.broadcast_to(atoms.get_tags()[:, None], (len(atoms), 3))
-    for i_step in range(ns_atoms.walk_traj_len["gmc"]):
+    tags = atoms.get_tags()
+    tags = np.where(tags >= ns_atoms.tags[move], 1, 0)
+    moving = np.broadcast_to(tags[:, None], (len(atoms), 3))
+    for i_step in range(ns_atoms.walk_traj_len[move]):
         # step and evaluate new energy, forces
         atoms.positions += atoms.arrays["NS_velocities"] * moving
         # inclusion of limits by instering reflective walls at the lower and the higher limits
@@ -105,18 +108,35 @@ def walk_pos_gmc(ns_atoms, Emax, rng):
         # revert
         atoms.positions[...] = atoms.prev_positions
 
-        return [("pos_gmc_each_atom", 1, 0)]
+        return [(move, 1, 0)]
     else:
         atoms.info["NS_energy"][...] = E
         atoms.arrays["NS_forces"][...] = F
 
-        return [("pos_gmc_each_atom", 1, 1)]
+        return [(move, 1, 1)]
 
 
-def walk_lattice_single(ns_atoms, Emax, rng):
+def walk_lattice_single(ns_atoms, Emax, rng, move):
+    """Walk single atomic positions by lattice parameter in x and y direction
+
+    Parameters
+    ----------
+    ns_atoms: NSConfig_ASE_Atoms
+        initial atomic configuration
+    Emax: float
+        maximum shifted energy
+    rng: numpy.Generator
+        random number generator
+    move: str
+        id of move
+
+    Returns
+    -------
+    [] info on move params and attempts/successes
+    """
     atoms = ns_atoms.atoms
     atoms.prev_positions[...] = atoms.positions
-    atom_id = rng.choice(np.where(atoms.get_tags() == 1)[0])
+    atom_id = rng.choice(np.where(atoms.get_tags() >= ns_atoms.tags[move])[0])
     shift = np.array(
         [
             rng.integers(0, ns_atoms.lattice[0]) / ns_atoms.lattice[0],
@@ -128,6 +148,17 @@ def walk_lattice_single(ns_atoms, Emax, rng):
     tmp[atom_id] += shift
     atoms.set_scaled_positions(tmp)
 
+    d = neighbor_list(
+        "d",
+        atoms,
+        cutoff=ns_atoms.min_dist,
+        self_interaction=False,
+    )
+
+    if len(d)>0:
+        atoms.positions[...] = atoms.prev_positions
+        return []
+
     atoms.calc.calculate(
         atoms, properties=["free_energy", "forces"], system_changes=all_changes
     )
@@ -145,19 +176,115 @@ def walk_lattice_single(ns_atoms, Emax, rng):
         return []
 
 
-def walk_random_single(ns_atoms, Emax, rng):
+def walk_lattice_up_down_single(ns_atoms, Emax, rng, move):
+    """Walk single atomic positions by lattice parameter while jumping up and down a layer
+
+    Parameters
+    ----------
+    ns_atoms: NSConfig_ASE_Atoms
+        initial atomic configuration
+    Emax: float
+        maximum shifted energy
+    rng: numpy.Generator
+        random number generator
+    move: str
+        id of move
+
+    Returns
+    -------
+    [] info on move params and attempts/successes
+    """
     atoms = ns_atoms.atoms
     atoms.prev_positions[...] = atoms.positions
-    atom_id = rng.choice(np.where(atoms.get_tags() == 1)[0])
-    tmp = atoms.get_scaled_positions()
+    atom_id = rng.choice(np.where(atoms.get_tags() >= ns_atoms.tags[move])[0])
+    shift = np.array(
+        [
+            (rng.integers(0, ns_atoms.lattice[0]) + 1 / 2) / ns_atoms.lattice[0],
+            (rng.integers(0, ns_atoms.lattice[1]) + 1 / 2) / ns_atoms.lattice[1],
+            rng.choice([-1, 1]) * 1.816/np.linalg.norm(atoms.cell[2]),
+        ]
+    )
+    tmp = atoms.get_scaled_positions(wrap=False)
+    tmp[atom_id] += shift
+
+    if not ns_atoms.limit['z'][0] < tmp[atom_id][2] < ns_atoms.limit['z'][1]:
+        atoms.positions[...] = atoms.prev_positions
+        return []
     
+
+
+    atoms.set_scaled_positions(tmp)
+
+
+    d = neighbor_list(
+        "d",
+        atoms,
+        cutoff=ns_atoms.min_dist,
+        self_interaction=False,
+    )
+
+    if len(d)>0:
+        atoms.positions[...] = atoms.prev_positions
+        return []
+
+    atoms.calc.calculate(
+        atoms, properties=["free_energy", "forces"], system_changes=all_changes
+    )
+    E = atoms.calc.results.get("free_energy", atoms.calc.results.get("energy"))
+    F = atoms.calc.results["forces"]
+
+    if E >= Emax:  # accept or fail
+        atoms.positions[...] = atoms.prev_positions
+
+        return []
+    else:
+        atoms.info["NS_energy"][...] = E
+        atoms.arrays["NS_forces"][...] = F
+
+        return []
+
+
+def walk_random_single(ns_atoms, Emax, rng, move):
+    """Walk single atomic positions by random assignement
+
+    Parameters
+    ----------
+    ns_atoms: NSConfig_ASE_Atoms
+        initial atomic configuration
+    Emax: float
+        maximum shifted energy
+    rng: numpy.Generator
+        random number generator
+    move: str
+        id of move
+
+    Returns
+    -------
+    [] info on move params and attempts/successes
+    """
+    atoms = ns_atoms.atoms
+    atoms.prev_positions[...] = atoms.positions
+    atom_id = rng.choice(np.where(atoms.get_tags() >= ns_atoms.tags[move])[0])
+    tmp = atoms.get_scaled_positions(wrap=False)
+
     limits = np.array([[0.0, 1.0], [0.0, 1.0], [0.0, 1.0]])
     for i, val in enumerate(["x", "y", "z"]):
         if val in ns_atoms.limit.keys():
             limits[i] = ns_atoms.limit[val]
 
-    tmp[atom_id] = rng.uniform(limits.T[0],limits.T[1], size=3)
+    tmp[atom_id] = rng.uniform(limits.T[0], limits.T[1], size=3)
     atoms.set_scaled_positions(tmp)
+
+    d = neighbor_list(
+        "d",
+        atoms,
+        cutoff=ns_atoms.min_dist,
+        self_interaction=False,
+    )
+
+    if len(d)>0:
+        atoms.positions[...] = atoms.prev_positions
+        return []
 
     atoms.calc.calculate(
         atoms, properties=["free_energy", "forces"], system_changes=all_changes
@@ -174,18 +301,48 @@ def walk_random_single(ns_atoms, Emax, rng):
         atoms.arrays["NS_forces"][...] = F
 
         return []
-    
 
-def walk_id_swap(ns_atoms, Emax, rng):
+
+def walk_id_swap(ns_atoms, Emax, rng, move):
+    """Random swap of two different atom ids
+
+    Parameters
+    ----------
+    ns_atoms: NSConfig_ASE_Atoms
+        initial atomic configuration
+    Emax: float
+        maximum shifted energy
+    rng: numpy.Generator
+        random number generator
+    move: str
+        id of move
+
+    Returns
+    -------
+    [] info on move params and attempts/successes
+    """
     atoms = ns_atoms.atoms
     Zs = list(atoms.numbers)
-    symbols = rng.choice(np.unique(atoms.numbers),2,replace=False)
+    symbols = rng.choice(np.unique(atoms.numbers), 2, replace=False)
+    tags = atoms.get_tags()
+    tags = np.where(tags >= ns_atoms.tags[move], 1, 0)
 
-    id_0 = rng.choice(np.where(atoms.numbers*atoms.get_tags()==symbols[0])[0])
-    id_1 = rng.choice(np.where(atoms.numbers*atoms.get_tags()==symbols[1])[0])
-    
+    id_0 = rng.choice(np.where(atoms.numbers * tags == symbols[0])[0])
+    id_1 = rng.choice(np.where(atoms.numbers * tags == symbols[1])[0])
+
     atoms.numbers[id_0] = symbols[1]
     atoms.numbers[id_1] = symbols[0]
+
+    d = neighbor_list(
+        "d",
+        atoms,
+        cutoff=ns_atoms.min_dist,
+        self_interaction=False,
+    )
+
+    if len(d)>0:
+        atoms.positions[...] = atoms.prev_positions
+        return []
 
     atoms.calc.calculate(
         atoms, properties=["free_energy", "forces"], system_changes=all_changes
