@@ -33,10 +33,7 @@ def walk_pos_gmc(ns_atoms, Emax, rng, move):
 
     # below here operate only on _internal_ energy, without any "+ P V - mu N" shifts
     Emax -= atoms.info["NS_energy_shift"]
-    atoms.calc.calculate(
-        atoms, properties=["free_energy", "forces"], system_changes=all_changes
-    )
-
+    
     # store orig position in case move is rejected
     atoms.prev_positions[...] = atoms.positions
     n_failed_in_a_row = 0
@@ -49,41 +46,34 @@ def walk_pos_gmc(ns_atoms, Emax, rng, move):
         # step and evaluate new energy, forces
         atoms.positions += atoms.arrays["NS_velocities"] * moving
         # inclusion of limits by instering reflective walls at the lower and the higher limits
-        if ns_atoms.limit != {}:
+        if ns_atoms.limit:
             tmp = atoms.get_scaled_positions(wrap=False)
             for k, val in enumerate(["x", "y", "z"]):
-                if val in ns_atoms.limit.keys():
-                    if (
-                        np.min(tmp[:, 2]) <= ns_atoms.limit[val][0]
-                        or np.max(tmp[:, 2]) >= ns_atoms.limit[val][1]
-                    ):
-                        # mirror of velocities
-                        change = (
-                            np.where(tmp[:, k] <= ns_atoms.limit[val][0], -2, 0)
-                            + np.where(tmp[:, k] <= ns_atoms.limit[val][1], 0, -2)
-                            + 1
-                        )
+                if val in ns_atoms.limit:
+                    lower_limit, upper_limit = ns_atoms.limit[val]
+                    
+                    # Identify out-of-bounds indices
+                    below_lower = tmp[:, k] <= lower_limit
+                    above_upper = tmp[:, k] >= upper_limit
+                    
+                    if np.any(below_lower) or np.any(above_upper):
+                        # Mirror of velocities
+                        change = np.ones_like(tmp[:, k])
+                        change[below_lower] = -1
+                        change[above_upper] = -1
                         atoms.arrays["NS_velocities"][:, k] *= change
-                        # mirror of positions
-                        while (
-                            np.min(tmp[:, k]) <= ns_atoms.limit[val][0]
-                            or np.max(tmp[:, k]) >= ns_atoms.limit[val][1]
-                        ):
-                            tmp[:, k] = np.where(
-                                tmp[:, k] <= ns_atoms.limit[val][0],
-                                k * ns_atoms.limit[val][0] - tmp[:, k],
-                                tmp[:, k],
-                            )
-                            tmp[:, k] = np.where(
-                                tmp[:, k] <= ns_atoms.limit[val][1],
-                                tmp[:, k],
-                                2 * ns_atoms.limit[val][1] - tmp[:, k],
-                            )
-                        atoms.set_scaled_positions(
-                            atoms.get_scaled_positions(wrap=False) * (1.0 - moving)
-                            + tmp * moving
-                        )
 
+                        # Mirror of positions
+                        while np.any(below_lower) or np.any(above_upper):
+                            tmp[below_lower, k] = 2 * lower_limit - tmp[below_lower, k]
+                            tmp[above_upper, k] = 2 * upper_limit - tmp[above_upper, k]
+                            
+                            # Update out-of-bounds indices
+                            below_lower = tmp[:, k] <= lower_limit
+                            above_upper = tmp[:, k] >= upper_limit
+
+                        atoms.set_scaled_positions(atoms.get_scaled_positions(wrap=False) * (1.0 - moving) + tmp * moving)
+ 
         atoms.calc.calculate(
             atoms, properties=["free_energy", "forces"], system_changes=all_changes
         )
