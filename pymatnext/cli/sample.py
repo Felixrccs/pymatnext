@@ -62,6 +62,13 @@ def init_MPI():
     NS_comm = MPI.COMM_WORLD
     walker_comm = MPI.COMM_SELF
 
+    try:
+        import torch
+        device = torch.cuda.device_count()
+        torch.cuda.set_device(NS_comm.rank%device)
+    except:
+        warnings.warn(f"Cuda issues")
+
     return MPI, NS_comm, walker_comm
 
 
