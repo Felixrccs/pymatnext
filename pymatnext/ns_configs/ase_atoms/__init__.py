@@ -64,7 +64,7 @@ class NSConfig_ASE_Atoms:
     n_quantities = -1
 
     # todo step size params not modular
-    _step_size_params = []
+    #_step_size_params = []
     # "pos_gmc_each_atom",
     #    "cell_volume_per_atom",
     #    "cell_shear_per_rt3_atom",
@@ -353,13 +353,12 @@ class NSConfig_ASE_Atoms:
         self.atoms.prev_positions = np.zeros(self.atoms.positions.shape)
         self.atoms.prev_cell = np.zeros(self.atoms.cell.array.shape)
 
-        self.reset_walk_counters()
 
     def reset_walk_counters(self):
         """Reset attempted and successful step counters"""
 
         self.n_att_acc = {
-            k: np.zeros(2, dtype=int) for k in NSConfig_ASE_Atoms._step_size_params
+            k: np.zeros(2, dtype=int) for k in self._step_size_params
         }
 
     def end_calculator(self):
@@ -568,6 +567,7 @@ class NSConfig_ASE_Atoms:
         #    assert set(Zs) == set(self._Zs)
 
         # max step sizes
+        self._step_size_params= []
         self.max_step_size = {}
         self.step_size = {}
         for move in NSConfig_ASE_Atoms._walk_moves:

@@ -357,6 +357,7 @@ def sample(args, MPI, NS_comm, walker_comm):
                 else:
                     # receive from correct rank
                     ns.extra_config.recv(ns.rank_of_max, ns.comm, MPI)
+                    #print('root',ns.extra_config.atoms.positions[-1], ns.extra_config.atoms.info)
                     max_config_write = ns.extra_config
 
                 max_config_write.write(traj_file, extra_info={"NS_iter": loop_iter})
@@ -442,7 +443,6 @@ def main(args_list=None, mpi_finalize=True):
     """
     MPI, NS_comm, walker_comm = init_MPI()
 
-    print(NS_comm, MPI)
 
     if MPI.COMM_WORLD.rank == 0:
         args = parse_args(args_list=args_list)

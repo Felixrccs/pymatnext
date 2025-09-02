@@ -4,6 +4,7 @@ import re
 from pathlib import Path
 
 import json
+import copy
 
 import numpy as np
 
@@ -223,7 +224,7 @@ class NS:
 
         # define generators for new configs from file or randomly generated
         new_configs_generator = self.NSConfig.new_configs_generator(
-            self.n_configs_global, params_configs, self.rng_global, configs_file
+            self.n_configs_global, copy.deepcopy(params_configs), self.rng_global, configs_file
         )
 
         # generate on root, send to each node
@@ -282,14 +283,11 @@ class NS:
 
         if extra:
             # construct extra config to use as a buffer, contents don't matter
-            self.extra_config = self.NSConfig(
-                params_configs,
-                rng=None,
-                compression=self.n_configs_global / (self.n_configs_global + 1),
-                allocate_only=True,
-            )
-
+            self.extra_config = new_config
+            self.extra_config.atoms.positions = np.zeros_like(self.extra_config.atoms.positions)
+        
         # re-sync after root process used rng_global to generate configs
+        # Todo: sync random generator, wierd bug
         self.rng_global.bit_generator.state = self.comm.bcast(
             self.rng_global.bit_generator.state, root=0
         )
@@ -398,6 +396,11 @@ class NS:
             for k in accept_freq:
                 accept_freq[k] += freq_i[k]
 
+        
+        accept_freq_values = self.comm.allreduce(
+                np.asarray(list(accept_freq.values())), self.MPI.SUM
+            )
+        accept_freq = {k: v for k, v in zip(accept_freq.keys(), accept_freq_values)}
 
         for param_name in max_step_size:
             if accept_freq[param_name][0] > 0:
@@ -410,9 +413,7 @@ class NS:
                     max_accept_rate,
                     adjust_factor,
                 )
-    
-
-            
+                
 
         new_step_size = {k: step_size[k] * max_step_size[k] for k in max_step_size}
 
@@ -421,6 +422,7 @@ class NS:
                 print(
                     f"step_size_tune {param_name} size {self.local_configs[0].step_size[param_name]} ==> size {new_step_size[param_name]} max {max_val} freq {accept_freq[param_name]}"
                 )
+
 
         for ns_config in self.local_configs:
             ns_config.step_size = new_step_size
@@ -505,7 +507,6 @@ class NS:
                 else:
                     self.local_configs[0].copy_contents(ns_config)
 
-                self.local_configs[0].reset_walk_counters()
                 accept_freq_contribution = self.local_configs[0].walk(
                     self.max_val, self.local_walk_length, self.rng_local
                 )
