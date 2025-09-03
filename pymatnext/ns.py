@@ -264,7 +264,7 @@ class NS:
         # prepare all configs for NS simulation
         for local_config in self.local_configs:
             local_config.prepare()
-            local_config.init_calculator()
+            local_config.init_calculator(comm= self.comm)
 
         # NOTE: this really belongs with the class, not the individual config
         # need to move initialization of the Zs to a classmethod

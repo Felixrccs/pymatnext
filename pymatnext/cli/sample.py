@@ -22,6 +22,11 @@ from pymatnext.sample_params import param_defaults
 
 from pymatnext.loop_exit import NSLoopExit
 
+try:
+    import torch
+    GPU = True
+except:
+    GPU = False
 
 def init_MPI():
     """initialize MPI for NS run
@@ -61,13 +66,6 @@ def init_MPI():
         from pymatnext.sample_utils import MPI
     NS_comm = MPI.COMM_WORLD
     walker_comm = MPI.COMM_SELF
-
-    try:
-        import torch
-        device = torch.cuda.device_count()
-        torch.cuda.set_device(NS_comm.rank%device)
-    except:
-        warnings.warn(f"Cuda issues")
 
     return MPI, NS_comm, walker_comm
 
@@ -177,7 +175,7 @@ def sample(args, MPI, NS_comm, walker_comm):
             )
 
     params_global = params["global"]
-    print(params_global)
+    
 
     # output file prefix
     output_filename_prefix = (
@@ -364,7 +362,6 @@ def sample(args, MPI, NS_comm, walker_comm):
                 else:
                     # receive from correct rank
                     ns.extra_config.recv(ns.rank_of_max, ns.comm, MPI)
-                    #print('root',ns.extra_config.atoms.positions[-1], ns.extra_config.atoms.info)
                     max_config_write = ns.extra_config
 
                 max_config_write.write(traj_file, extra_info={"NS_iter": loop_iter})
@@ -457,6 +454,7 @@ def main(args_list=None, mpi_finalize=True):
         args = None
 
     args = MPI.COMM_WORLD.bcast(args, root=0)
+
 
     sample(args, MPI, NS_comm, walker_comm)
 

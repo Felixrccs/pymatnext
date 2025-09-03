@@ -374,7 +374,7 @@ class NSConfig_ASE_Atoms:
 
         self.calc = None
 
-    def init_calculator(self, skip_initial_store=False):
+    def init_calculator(self, skip_initial_store=False, comm=None):
         """Initialize calculator.  Not part of constructor since some calculators (e.g. LAMMPS)
         cannot be pickled for mpi4py communication.
 
@@ -388,8 +388,11 @@ class NSConfig_ASE_Atoms:
 
         if self.calc_type == "ASE":
             # ASE Calculator
-            calc_module = importlib.import_module(params_calc["args"]["module"])
-            self.calc = calc_module.calc
+            calc_module = importlib.import_module(params_calc["args"].pop("module"))
+            if type(calc_module.calc) == list:
+                self.calc = calc_module.calc[comm.rank%len(calc_module.calc)]
+            else:
+                self.calc = calc_module.calc
         elif self.calc_type == "LAMMPS":
             lammps_header = (
                 params_calc["args"]
