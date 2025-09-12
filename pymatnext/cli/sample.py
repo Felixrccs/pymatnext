@@ -455,6 +455,10 @@ def main(args_list=None, mpi_finalize=True):
 
     args = MPI.COMM_WORLD.bcast(args, root=0)
 
+    os.environ["rank"] = str(NS_comm.rank)
+
+    print(NS_comm.rank, int(os.environ["rank"]))
+
 
     sample(args, MPI, NS_comm, walker_comm)
 
