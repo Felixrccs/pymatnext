@@ -24,8 +24,11 @@ from pymatnext.loop_exit import NSLoopExit
 
 try:
     import torch
-    torch.set_default_device('cuda')
-    GPU = True
+    if torch.cuda.is_available():
+        torch.set_default_device('cuda')
+        GPU = True
+    else:
+        GPU = False
 except:
     GPU = False
 

@@ -260,7 +260,7 @@ class NSConfig_ASE_Atoms:
                     tmp_seed = deepcopy(seed_config)
                     # rattle precondensed atoms
                     tmp_seed.positions += rng.normal(
-                        scale=0.2, size=seed_config.positions.shape
+                        scale=0.02, size=seed_config.positions.shape
                     ) * np.broadcast_to(
                         tmp_seed.get_tags()[:, None], (len(tmp_seed), 3)
                     )
@@ -389,10 +389,7 @@ class NSConfig_ASE_Atoms:
         if self.calc_type == "ASE":
             # ASE Calculator
             calc_module = importlib.import_module(params_calc["args"].pop("module"))
-            if type(calc_module.calc) == list:
-                self.calc = calc_module.calc[comm.rank%len(calc_module.calc)]
-            else:
-                self.calc = calc_module.calc
+            self.calc = calc_module.calc
         elif self.calc_type == "LAMMPS":
             lammps_header = (
                 params_calc["args"]

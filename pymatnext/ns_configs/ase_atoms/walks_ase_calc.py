@@ -1,4 +1,4 @@
-import warnings
+import warnings, sys
 
 from ase.calculators.calculator import all_changes
 from ase.neighborlist import neighbor_list
@@ -9,7 +9,7 @@ from copy import copy
 one_third = 1.0 / 3.0
 
 
-def walk_pos_gmc(ns_atoms, Emax, rng, move):
+def walk_pos_gmc_old(ns_atoms, Emax, rng, move):
     """Walk atomic positions using Galilean Monte-Carlo
 
     Parameters
@@ -33,7 +33,7 @@ def walk_pos_gmc(ns_atoms, Emax, rng, move):
 
     # below here operate only on _internal_ energy, without any "+ P V - mu N" shifts
     Emax -= atoms.info["NS_energy_shift"]
-    
+
     # store orig position in case move is rejected
     atoms.prev_positions[...] = atoms.positions
     n_failed_in_a_row = 0
@@ -51,11 +51,11 @@ def walk_pos_gmc(ns_atoms, Emax, rng, move):
             for k, val in enumerate(["x", "y", "z"]):
                 if val in ns_atoms.limit:
                     lower_limit, upper_limit = ns_atoms.limit[val]
-                    
+
                     # Identify out-of-bounds indices
                     below_lower = tmp[:, k] <= lower_limit
                     above_upper = tmp[:, k] >= upper_limit
-                    
+
                     if np.any(below_lower) or np.any(above_upper):
                         # Mirror of velocities
                         change = np.ones_like(tmp[:, k])
@@ -67,13 +67,16 @@ def walk_pos_gmc(ns_atoms, Emax, rng, move):
                         while np.any(below_lower) or np.any(above_upper):
                             tmp[below_lower, k] = 2 * lower_limit - tmp[below_lower, k]
                             tmp[above_upper, k] = 2 * upper_limit - tmp[above_upper, k]
-                            
+
                             # Update out-of-bounds indices
                             below_lower = tmp[:, k] <= lower_limit
                             above_upper = tmp[:, k] >= upper_limit
 
-                        atoms.set_scaled_positions(atoms.get_scaled_positions(wrap=False) * (1.0 - moving) + tmp * moving)
- 
+                        atoms.set_scaled_positions(
+                            atoms.get_scaled_positions(wrap=False) * (1.0 - moving)
+                            + tmp * moving
+                        )
+
         atoms.calc.calculate(
             atoms, properties=["free_energy", "forces"], system_changes=all_changes
         )
@@ -91,6 +94,128 @@ def walk_pos_gmc(ns_atoms, Emax, rng, move):
             atoms.arrays["NS_velocities"] -= (
                 F_hat * 2.0 * np.sum(atoms.arrays["NS_velocities"] * F_hat)
             )
+        else:
+            n_failed_in_a_row = 0
+
+    if n_failed_in_a_row > 0:
+        # revert
+        atoms.positions[...] = atoms.prev_positions
+
+        return [(move, 1, 0)]
+    else:
+        atoms.info["NS_energy"][...] = E
+        atoms.arrays["NS_forces"][...] = F
+
+        return [(move, 1, 1)]
+
+
+def walk_pos_gmc(ns_atoms, Emax, rng, move):
+    """Walk atomic positions using Galilean Monte-Carlo
+
+    Parameters
+    ----------
+    ns_atoms: NSConfig_ASE_Atoms
+        initial atomic configuration
+    Emax: float
+        maximum shifted energy
+    rng: numpy.Generator
+        random number generator
+
+    Returns
+    -------
+    [(move, int n_attempt, int n_success)] info on move params and attempts/successes
+    """
+    atoms = ns_atoms.atoms
+    tags = atoms.get_tags()
+    # new random velocities
+
+    atoms.arrays["NS_velocities"][...] = rng.normal(
+        scale=ns_atoms.step_size[move], size=atoms.positions.shape
+    )
+
+    if 1 in tags and ns_atoms.step_size[move] > ns_atoms.one_max_step:
+        one_tag = np.where(tags <= 1)[0]
+        tmp = atoms.arrays["NS_velocities"][...]
+        tmp[one_tag] = rng.normal(scale=ns_atoms.one_max_step, size=(len(one_tag), 3))
+        atoms.arrays["NS_velocities"][...] = tmp
+    else:
+        tags = np.where(tags >= ns_atoms.tags[move], 1, 0)
+
+
+    # below here operate only on _internal_ energy, without any "+ P V - mu N" shifts
+    Emax -= atoms.info["NS_energy_shift"]
+
+    # store orig position in case move is rejected
+    atoms.prev_positions[...] = atoms.positions
+    n_failed_in_a_row = 0
+
+    # consider fixed atoms
+    moving = np.where(tags >= ns_atoms.tags[move], 1, 0)
+    moving = np.broadcast_to(tags[:, None], (len(atoms), 3))
+    for i_step in range(ns_atoms.walk_traj_len[move]):
+        # step and evaluate new energy, forces
+        atoms.positions += atoms.arrays["NS_velocities"] * moving
+        # inclusion of limits by instering reflective walls at the lower and the higher limits
+        if ns_atoms.limit:
+            tmp = atoms.get_scaled_positions(wrap=False)
+            for k, val in enumerate(["x", "y", "z"]):
+                if val in ns_atoms.limit:
+                    lower_limit, upper_limit = ns_atoms.limit[val]
+
+                    # Identify out-of-bounds indices
+                    below_lower = tmp[:, k] <= lower_limit
+                    above_upper = tmp[:, k] >= upper_limit
+
+                    if np.any(below_lower) or np.any(above_upper):
+                        # Mirror of velocities
+                        change = np.ones_like(tmp[:, k])
+                        change[below_lower] = -1
+                        change[above_upper] = -1
+                        atoms.arrays["NS_velocities"][:, k] *= change
+
+                        # Mirror of positions
+                        while np.any(below_lower) or np.any(above_upper):
+                            tmp[below_lower, k] = 2 * lower_limit - tmp[below_lower, k]
+                            tmp[above_upper, k] = 2 * upper_limit - tmp[above_upper, k]
+
+                            # Update out-of-bounds indices
+                            below_lower = tmp[:, k] <= lower_limit
+                            above_upper = tmp[:, k] >= upper_limit
+
+                        atoms.set_scaled_positions(
+                            atoms.get_scaled_positions(wrap=False) * (1.0 - moving)
+                            + tmp * moving
+                        )
+        try:
+            atoms.calc.calculate(
+                atoms, properties=["free_energy", "forces"], system_changes=all_changes
+            )
+        except:
+            print(len(atoms))
+            print(atoms.positions[...])
+            sys.exit()
+        E = atoms.calc.results.get("free_energy", atoms.calc.results.get("energy"))
+        F = atoms.calc.results["forces"]
+
+        if E >= Emax:  # reflect or fail
+            n_failed_in_a_row += 1
+            if n_failed_in_a_row >= 2:
+                break
+            if np.sum(F * F) == 0:
+                warnings.warn("Got F=0 while reflecting, giving up")
+                break
+            new = np.zeros_like(atoms.arrays["NS_velocities"])
+            for tag in np.unique(tags):
+                if tag > 0:
+                    tag_id = np.where(tags == tag)[0]
+                    if np.sum(F[tag_id] * F[tag_id]) == 0:
+                        warnings.warn("Got F=0 while reflecting, giving up")
+                        break
+                    F_hat = F[tag_id] / np.sqrt(np.sum(F[tag_id] * F[tag_id]))
+                    new[tag_id] = atoms.arrays["NS_velocities"][tag_id] -  (
+                        F_hat * 2.0 * np.sum(atoms.arrays["NS_velocities"][tag_id] * F_hat)
+                    )
+            atoms.arrays["NS_velocities"] = new
         else:
             n_failed_in_a_row = 0
 
@@ -145,7 +270,7 @@ def walk_lattice_single(ns_atoms, Emax, rng, move):
         self_interaction=False,
     )
 
-    if len(d)>0:
+    if len(d) > 0:
         atoms.positions[...] = atoms.prev_positions
         return []
 
@@ -191,20 +316,17 @@ def walk_lattice_up_down_single(ns_atoms, Emax, rng, move):
         [
             (rng.integers(0, ns_atoms.lattice[0]) + 1 / 2) / ns_atoms.lattice[0],
             (rng.integers(0, ns_atoms.lattice[1]) + 1 / 2) / ns_atoms.lattice[1],
-            rng.choice([-1, 1]) * 1.816/np.linalg.norm(atoms.cell[2]),
+            rng.choice([-1, 1]) * 1.816 / np.linalg.norm(atoms.cell[2]),
         ]
     )
     tmp = atoms.get_scaled_positions(wrap=False)
     tmp[atom_id] += shift
 
-    if not ns_atoms.limit['z'][0] < tmp[atom_id][2] < ns_atoms.limit['z'][1]:
+    if not ns_atoms.limit["z"][0] < tmp[atom_id][2] < ns_atoms.limit["z"][1]:
         atoms.positions[...] = atoms.prev_positions
         return []
-    
-
 
     atoms.set_scaled_positions(tmp)
-
 
     d = neighbor_list(
         "d",
@@ -213,7 +335,7 @@ def walk_lattice_up_down_single(ns_atoms, Emax, rng, move):
         self_interaction=False,
     )
 
-    if len(d)>0:
+    if len(d) > 0:
         atoms.positions[...] = atoms.prev_positions
         return []
 
@@ -272,7 +394,7 @@ def walk_random_single(ns_atoms, Emax, rng, move):
         self_interaction=False,
     )
 
-    if len(d)>0:
+    if len(d) > 0:
         atoms.positions[...] = atoms.prev_positions
         return []
 
@@ -330,7 +452,7 @@ def walk_id_swap(ns_atoms, Emax, rng, move):
         self_interaction=False,
     )
 
-    if len(d)>0:
+    if len(d) > 0:
         atoms.positions[...] = atoms.prev_positions
         return []
 
