@@ -24,6 +24,7 @@ from pymatnext.loop_exit import NSLoopExit
 
 try:
     import torch
+    torch.set_default_device('cuda')
     GPU = True
 except:
     GPU = False
@@ -455,9 +456,9 @@ def main(args_list=None, mpi_finalize=True):
 
     args = MPI.COMM_WORLD.bcast(args, root=0)
 
-    os.environ["rank"] = str(NS_comm.rank)
-
-    print(NS_comm.rank, int(os.environ["rank"]))
+    if GPU:
+        #set GPUs for MPI ranks
+        torch.cuda.set_device(f'cuda:{NS_comm.rank%torch.cuda.device_count()}')
 
 
     sample(args, MPI, NS_comm, walker_comm)
