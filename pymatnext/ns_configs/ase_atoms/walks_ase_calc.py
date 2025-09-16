@@ -457,7 +457,8 @@ def walk_id_swap(ns_atoms, Emax, rng, move):
     )
 
     if len(d) > 0:
-        atoms.positions[...] = atoms.prev_positions
+        atoms.set_atomic_numbers(Zs)
+
         return []
 
     atoms.calc.calculate(
@@ -473,7 +474,7 @@ def walk_id_swap(ns_atoms, Emax, rng, move):
     else:
         atoms.info["NS_energy"][...] = E
         atoms.arrays["NS_forces"][...] = F
-
+        
         return []
 
 
