@@ -260,7 +260,7 @@ class NSConfig_ASE_Atoms:
                     tmp_seed = deepcopy(seed_config)
                     # rattle precondensed atoms
                     tmp_seed.positions += rng.normal(
-                        scale=0.02, size=seed_config.positions.shape
+                        scale=0.005, size=seed_config.positions.shape
                     ) * np.broadcast_to(
                         tmp_seed.get_tags()[:, None], (len(tmp_seed), 3)
                     )

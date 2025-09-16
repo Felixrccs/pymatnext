@@ -141,7 +141,6 @@ def walk_pos_gmc(ns_atoms, Emax, rng, move):
     else:
         tags = np.where(tags >= ns_atoms.tags[move], 1, 0)
 
-
     # below here operate only on _internal_ energy, without any "+ P V - mu N" shifts
     Emax -= atoms.info["NS_energy_shift"]
 
@@ -186,18 +185,21 @@ def walk_pos_gmc(ns_atoms, Emax, rng, move):
                             atoms.get_scaled_positions(wrap=False) * (1.0 - moving)
                             + tmp * moving
                         )
-        try:
-            atoms.calc.calculate(
-                atoms, properties=["free_energy", "forces"], system_changes=all_changes
-            )
-        except:
-            print(len(atoms))
-            print(atoms.positions[...])
-            sys.exit()
+        atoms.calc.calculate(
+            atoms, properties=["free_energy", "forces"], system_changes=all_changes
+        )
+
+        d = neighbor_list(
+            "d",
+            atoms,
+            cutoff=ns_atoms.min_dist,
+            self_interaction=False,
+        )
+
         E = atoms.calc.results.get("free_energy", atoms.calc.results.get("energy"))
         F = atoms.calc.results["forces"]
 
-        if E >= Emax:  # reflect or fail
+        if E >= Emax or len(d)>1:  # reflect or fail
             n_failed_in_a_row += 1
             if n_failed_in_a_row >= 2:
                 break
@@ -212,8 +214,10 @@ def walk_pos_gmc(ns_atoms, Emax, rng, move):
                         warnings.warn("Got F=0 while reflecting, giving up")
                         break
                     F_hat = F[tag_id] / np.sqrt(np.sum(F[tag_id] * F[tag_id]))
-                    new[tag_id] = atoms.arrays["NS_velocities"][tag_id] -  (
-                        F_hat * 2.0 * np.sum(atoms.arrays["NS_velocities"][tag_id] * F_hat)
+                    new[tag_id] = atoms.arrays["NS_velocities"][tag_id] - (
+                        F_hat
+                        * 2.0
+                        * np.sum(atoms.arrays["NS_velocities"][tag_id] * F_hat)
                     )
             atoms.arrays["NS_velocities"] = new
         else:
