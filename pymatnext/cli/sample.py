@@ -302,12 +302,12 @@ def sample(args, MPI, NS_comm, walker_comm):
         pprint.pprint(params, sort_dicts=False)
 
 
-    ns.step_size_tune(
-                n_configs=params_step_size_tune["n_configs"],
-                min_accept_rate=params_step_size_tune["min_accept_rate"],
-                max_accept_rate=params_step_size_tune["max_accept_rate"],
-                adjust_factor=params_step_size_tune["adjust_factor"],
-            )
+    #ns.step_size_tune(
+    #            n_configs=params_step_size_tune["n_configs"],
+    #            min_accept_rate=params_step_size_tune["min_accept_rate"],
+    #            max_accept_rate=params_step_size_tune["max_accept_rate"],
+    #            adjust_factor=params_step_size_tune["adjust_factor"],
+    #        )
 
 
     acceptance = deque(maxlen=step_size_tune_last_n_iterations)
@@ -399,11 +399,21 @@ def sample(args, MPI, NS_comm, walker_comm):
         if NS_comm.rank == ns.rank_of_max:
             # always walk cloned config which is in location of old max
             i_walk = ns.local_ind_of_max
+            all_i = list(range(ns.n_configs_local))
+            all_i.pop(i_walk)
+            xi_walk = [i_walk, *list(ns.rng_local.integers(0, ns.n_configs_local,7))]
+            
         else:
             # walk a random config
-            i_walk = ns.rng_local.integers(0, ns.n_configs_local)
+            xi_walk = list(ns.rng_local.integers(0, ns.n_configs_local,8))
 
-        acceptance.append(ns.local_configs[i_walk].walk(ns.max_val, ns.local_walk_length, ns.rng_local))
+
+        atoms, n_att_acc = ns.walk([ns.local_configs[k].atoms for k in xi_walk], 20, ns.max_val, ns.local_configs.step_size['walk_pos_gmc'])
+
+        for k, idx in enumerate(xi_walk):
+            ns.local_configs[idx].atoms = atoms[k]
+
+        acceptance.append(n_att_acc)
 
         # find new maximum
         ns.find_max()

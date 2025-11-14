@@ -13,6 +13,8 @@ from .ns_utils import rngs as new_rngs
 from pymatnext.params import check_fill_defaults
 from .ns_params import param_defaults
 
+from ns_configs.ase_atoms.walks_torch import state_init, state_to_atoms, torch_walker
+
 
 class NS:
     """Nested sampling object
@@ -54,6 +56,8 @@ class NS:
         self.MPI = MPI
         self.n_configs_global = params_ns["n_walkers"]
         self.global_walk_length = params_ns["walk_length"]
+        self.model = self.set_calculator()[1]
+        self.walk = torch_walker(0.6,0.2,self.model)
 
         # get configuration constructor from module that defines exactly one class whose name starts with NSConfig_
         print("###### configs_module ########")
@@ -119,6 +123,7 @@ class NS:
             different_nlocal=different_n_rng_local,
         )
         self.init_configs(params_configs, initial_config_file, extra=extra_config)
+
 
     def report_store(self, loop_iter):
         """Store quantities needed for NSConfig-specific report on progress of NS iteration
@@ -261,10 +266,17 @@ class NS:
             for config_i in range(self.n_configs_local):
                 self.local_configs.append(self.comm.recv(source=0, tag=15 + config_i))
 
+        
+        state = state_init([local_config.atoms for local_config in self.local_configs], self.model)
+        atoms = state_to_atoms(state)
+
         # prepare all configs for NS simulation
-        for local_config in self.local_configs:
+        for i, local_config in enumerate(self.local_configs):
             local_config.prepare()
-            local_config.init_calculator(comm= self.comm)
+            local_config.atoms = atoms[i]
+
+        
+        
 
         # NOTE: this really belongs with the class, not the individual config
         # need to move initialization of the Zs to a classmethod
@@ -280,6 +292,8 @@ class NS:
         self._ns_quants_global = np.finfo(np.float64).min * np.ones(
             (self.comm.size, self.max_n_configs_local, n_quantities)
         )
+
+        
 
         if extra:
             # construct extra config to use as a buffer, contents don't matter
