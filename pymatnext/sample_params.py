@@ -14,8 +14,8 @@ param_defaults = {
         "step_size_tune": {
             "interval": 1000,
             "n_configs": 1,
-            "min_accept_rate": 0.25,
-            "max_accept_rate": 0.5,
+            "min_accept_rate": 0.5,
+            "max_accept_rate": 0.75,
             "adjust_factor": 1.25,
             "last_n_iterations": 10,
         },

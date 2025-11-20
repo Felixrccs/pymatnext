@@ -210,6 +210,7 @@ def sample(args, MPI, NS_comm, walker_comm):
 
     ####################################################################################################
     # prepare for loop
+
     ns.find_max()
 
     config_suffix = ns.local_configs[0].filename_suffix
@@ -314,6 +315,7 @@ def sample(args, MPI, NS_comm, walker_comm):
     time_prev_stdout_report = time.time()
     for loop_iter in loop_iterable:
         if exit_cond(ns, loop_iter):
+            print('exit')
             break
 
         # max info should already be set to: ns.rank_of_max, ns.local_ind_of_max, ns.max_val, ns.max_quants
@@ -407,11 +409,10 @@ def sample(args, MPI, NS_comm, walker_comm):
             # walk a random config
             xi_walk = list(ns.rng_local.integers(0, ns.n_configs_local,8))
 
+        n_att_acc = ns.walker.walk([ns.local_configs[k].atoms for k in xi_walk], 20, ns.max_val, ns.local_configs[0].step_size['gmc'])
 
-        atoms, n_att_acc = ns.walk([ns.local_configs[k].atoms for k in xi_walk], 20, ns.max_val, ns.local_configs.step_size['walk_pos_gmc'])
-
-        for k, idx in enumerate(xi_walk):
-            ns.local_configs[idx].atoms = atoms[k]
+        #for k, idx in enumerate(xi_walk):
+        #    ns.local_configs[idx].atoms = atoms[k]
 
         acceptance.append(n_att_acc)
 

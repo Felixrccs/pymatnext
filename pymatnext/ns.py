@@ -13,7 +13,7 @@ from .ns_utils import rngs as new_rngs
 from pymatnext.params import check_fill_defaults
 from .ns_params import param_defaults
 
-from ns_configs.ase_atoms.walks_torch import state_init, state_to_atoms, torch_walker
+from .ns_configs.ase_atoms.walks_torch import state_init, append_state_to_atoms, torch_walker
 
 
 class NS:
@@ -56,8 +56,6 @@ class NS:
         self.MPI = MPI
         self.n_configs_global = params_ns["n_walkers"]
         self.global_walk_length = params_ns["walk_length"]
-        self.model = self.set_calculator()[1]
-        self.walk = torch_walker(0.6,0.2,self.model)
 
         # get configuration constructor from module that defines exactly one class whose name starts with NSConfig_
         print("###### configs_module ########")
@@ -124,6 +122,9 @@ class NS:
         )
         self.init_configs(params_configs, initial_config_file, extra=extra_config)
 
+    def get_calculator(self):
+        calc_module = importlib.import_module('examples.ASE_style_calc.MACE_torch')
+        return calc_module.calc
 
     def report_store(self, loop_iter):
         """Store quantities needed for NSConfig-specific report on progress of NS iteration
@@ -266,14 +267,15 @@ class NS:
             for config_i in range(self.n_configs_local):
                 self.local_configs.append(self.comm.recv(source=0, tag=15 + config_i))
 
+        models = self.get_calculator()
+        self.walker = torch_walker(4.72354462, 10., model=models[1], E_model=models[0], atoms=self.local_configs[0].atoms)
         
-        state = state_init([local_config.atoms for local_config in self.local_configs], self.model)
-        atoms = state_to_atoms(state)
+        state = state_init([local_config.atoms for local_config in self.local_configs], models[0])
+        append_state_to_atoms(state, [local_config.atoms for local_config in self.local_configs])
 
         # prepare all configs for NS simulation
         for i, local_config in enumerate(self.local_configs):
             local_config.prepare()
-            local_config.atoms = atoms[i]
 
         
         
@@ -297,7 +299,7 @@ class NS:
 
         if extra:
             # construct extra config to use as a buffer, contents don't matter
-            self.extra_config = new_config
+            self.extra_config = copy.deepcopy(new_config)
             self.extra_config.atoms.positions = np.zeros_like(self.extra_config.atoms.positions)
         
         # re-sync after root process used rng_global to generate configs

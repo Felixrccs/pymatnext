@@ -278,7 +278,7 @@ class NSConfig_ASE_Atoms:
                         cell=cell,
                         scaled_positions=scaled_positions,
                         pbc=pbc,
-                        tags=np.ones(n_atoms) * 2,
+                        tags=np.ones(n_atoms),
                     )
                 )
                 self.atoms = AtomsContiguousStorage(tmp_seed)
@@ -336,7 +336,7 @@ class NSConfig_ASE_Atoms:
         params_walk = params["walk"]
         # todo apdate dict check_fill_defaults(params_walk, param_defaults_walk, label="configs / walk")
         self._prep_walk(params_walk, vol_per_atom=initial_rand_vol_per_atom)
-        self._rotate_to_lammps()
+    
 
         # initialize space for NS quantities
         self.atoms.info["NS_quantities"] = np.zeros(self.n_quantities)
@@ -513,7 +513,7 @@ class NSConfig_ASE_Atoms:
     def update_NS_quantities(self):
         """Update atoms.info["NS_quantities"] with current values"""
         self.atoms.info["NS_quantities"][0] = (
-            self.atoms.info["NS_energy"] + self.atoms.info["NS_energy_shift"]
+            self.atoms.info["NS_energy"]
         )
         self.atoms.info["NS_quantities"][1] = self.atoms.get_volume()
         N_atoms = len(self.atoms)
@@ -523,11 +523,6 @@ class NSConfig_ASE_Atoms:
                 sum(self.atoms.numbers == Z) / N_atoms for Z in self._Zs
             ]
 
-    def calc_NS_energy_shift(self):
-        """Calculate current NS_energy_shift based on current volume and species"""
-        return self.pressure * self.atoms.get_volume() - np.sum(
-            self.mu[self.atoms.numbers]
-        )
 
     @staticmethod
     def skip(fileobj):
