@@ -11,7 +11,7 @@ param_defaults_ase_atoms = {
     "initial_rand_vol_per_atom": ["_REQ_", 1.0],
     "initial_rand_min_dist": ["_REQ_",{ "_IGNORE_": 1.0 }],
     "initial_rand_n_tries": 10,
-    "limit": { "_IGNORE_": True },
+    "limit": [0., 1.],
     "calculator": {
         "type": ["_REQ_", "calc_type"],
         "args": { "_IGNORE_": True }

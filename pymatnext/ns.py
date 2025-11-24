@@ -56,6 +56,7 @@ class NS:
         self.MPI = MPI
         self.n_configs_global = params_ns["n_walkers"]
         self.global_walk_length = params_ns["walk_length"]
+        self.parallel = params_ns["parallel_walks"]
 
         # get configuration constructor from module that defines exactly one class whose name starts with NSConfig_
         print("###### configs_module ########")
@@ -268,7 +269,7 @@ class NS:
                 self.local_configs.append(self.comm.recv(source=0, tag=15 + config_i))
 
         models = self.get_calculator()
-        self.walker = torch_walker(4.72354462, 10., model=models[1], E_model=models[0], atoms=self.local_configs[0].atoms)
+        self.walker = torch_walker(params_configs['limit'], model=models[1], E_model=models[0], atoms=self.local_configs[0].atoms)
         
         state = state_init([local_config.atoms for local_config in self.local_configs], models[0])
         append_state_to_atoms(state, [local_config.atoms for local_config in self.local_configs])

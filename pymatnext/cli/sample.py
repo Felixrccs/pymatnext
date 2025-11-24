@@ -403,11 +403,11 @@ def sample(args, MPI, NS_comm, walker_comm):
             i_walk = ns.local_ind_of_max
             all_i = list(range(ns.n_configs_local))
             all_i.pop(i_walk)
-            xi_walk = [i_walk, *list(ns.rng_local.integers(0, ns.n_configs_local,7))]
+            xi_walk = [i_walk, *list(ns.rng_local.integers(0, ns.n_configs_local,ns.parallel -1))]
             
         else:
             # walk a random config
-            xi_walk = list(ns.rng_local.integers(0, ns.n_configs_local,8))
+            xi_walk = list(ns.rng_local.integers(0, ns.n_configs_local, ns.parallel))
 
         n_att_acc = ns.walker.walk([ns.local_configs[k].atoms for k in xi_walk], 20, ns.max_val, ns.local_configs[0].step_size['gmc'])
 
@@ -469,10 +469,9 @@ def main(args_list=None, mpi_finalize=True):
         args = None
 
     args = MPI.COMM_WORLD.bcast(args, root=0)
-
-    if GPU:
+    #if GPU:
         #set GPUs for MPI ranks
-        torch.cuda.set_device(f'cuda:{NS_comm.rank%torch.cuda.device_count()}')
+    #    torch.cuda.set_device(f'cuda:{NS_comm.rank%torch.cuda.device_count()}')
 
 
     sample(args, MPI, NS_comm, walker_comm)

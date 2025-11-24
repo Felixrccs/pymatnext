@@ -188,9 +188,7 @@ class NSConfig_ASE_Atoms:
 
             # include limits
             initial_limits = np.array([[0.0, 1.0], [0.0, 1.0], [0.0, 1.0]])
-            for i, val in enumerate(["x", "y", "z"]):
-                if val in self.limit.keys():
-                    initial_limits[i] = self.limit[val]
+            initial_limits[2] = self.limit
 
             self.min_dist = params["initial_rand_min_dist"]
             initial_rand_n_tries = params["initial_rand_n_tries"]
