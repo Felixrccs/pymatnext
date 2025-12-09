@@ -303,12 +303,6 @@ def sample(args, MPI, NS_comm, walker_comm):
         pprint.pprint(params, sort_dicts=False)
 
 
-    #ns.step_size_tune(
-    #            n_configs=params_step_size_tune["n_configs"],
-    #            min_accept_rate=params_step_size_tune["min_accept_rate"],
-    #            max_accept_rate=params_step_size_tune["max_accept_rate"],
-    #            adjust_factor=params_step_size_tune["adjust_factor"],
-    #        )
 
 
     acceptance = deque(maxlen=step_size_tune_last_n_iterations)

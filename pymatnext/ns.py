@@ -271,8 +271,11 @@ class NS:
         models = self.get_calculator()
         self.walker = torch_walker(params_configs['limit'], model=models[1], E_model=models[0], atoms=self.local_configs[0].atoms)
         
-        state = state_init([local_config.atoms for local_config in self.local_configs], models[0])
-        append_state_to_atoms(state, [local_config.atoms for local_config in self.local_configs])
+        # batch inital calculations to spare atoms
+        for atoms_ids in np.array_split(np.arange(self.n_configs_global),self.n_configs_global//40):
+            state = state_init([self.local_configs[local_i].atoms for local_i in atoms_ids], models[0])
+            append_state_to_atoms(state, [self.local_configs[local_i].atoms for local_i in atoms_ids])
+        print('local_info', self.local_configs[20].atoms.info)
 
         # prepare all configs for NS simulation
         for i, local_config in enumerate(self.local_configs):

@@ -558,7 +558,7 @@ class NSConfig_ASE_Atoms:
             return -1
 
     @staticmethod
-    def read(fileobj, params):
+    def read(fileobj, params, compression):
         """read a file containing one or more configurations and create a list of NSConfig_ASE_Atoms
         objects from them
 
@@ -580,7 +580,7 @@ class NSConfig_ASE_Atoms:
 
         file_format = ase.io.formats.filetype(filename, read=False)
         for atoms in ase.io.iread(fileobj, ":", format=file_format, parallel=False):
-            at = NSConfig_ASE_Atoms(params, source=atoms)
+            at = NSConfig_ASE_Atoms(params, source=atoms, compression=compression)
             at.step_size.update(json.loads(at.atoms.info.pop("_NS_step_size", "{}")))
 
             yield at
@@ -807,10 +807,10 @@ class NSConfig_ASE_Atoms:
             seed_config = ase.io.read(seed_config)
 
         if configs_file is not None:
-
+            print(configs_file)
             def new_configs_generator_file():
                 with open(configs_file) as fin:
-                    for config_i, config in enumerate(cls.read(fin, params_configs)):
+                    for config_i, config in enumerate(cls.read(fin, params_configs, compression=n_configs / (n_configs + 1))):
                         if config_i >= n_configs:
                             raise RuntimeError(
                                 f"Found too many configs {config_i + 1} than requested "

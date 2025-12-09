@@ -349,6 +349,17 @@ class torch_walker:
             dtype=self.model.dtype,
             device=self.model.device,
         )
+        possible_moves = {'gmc': self.walk_pos_gmc,
+                           'pos': self.random_pos,
+                           'updown': self.up_and_down_step,
+                           'side': self.side_step}
+        
+        self.moves = [possible_moves[i] for i in ['gmc','pos','updown','side']]
+        self.prop = torch.tensor([0.6, 0.08, 0.16, 0.16], dtype=self.model.dtype, device=self.model.device)
+        self.len = [10,1,1,1]
+
+        
+        
 
     def get_xy_shift(
         self,
@@ -414,8 +425,7 @@ class torch_walker:
     def walk_pos_gmc(
         self,
         state: WalkState,
-        steps: int,
-        step_size: float,
+        steps: int = 10,
     ) -> list:
         """Galilean Monte Carlo walk over n steps. Accepts walks in dependance on the energy and hard spheres
 
@@ -437,7 +447,7 @@ class torch_walker:
             "ij,i->ij",
             torch.normal(
                 0.0,
-                step_size,
+                self.step_size,
                 size=positions.shape,
                 device=self.model.device,
                 dtype=self.model.dtype,
@@ -541,6 +551,8 @@ class torch_walker:
                 state.energy[idx] = E[idx]
         state.positions = new_positions
 
+        return []
+
     def side_step(
         self,
         state: WalkState,
@@ -579,6 +591,8 @@ class torch_walker:
                 new_positions[mask] = positions[mask]
                 state.energy[idx] = E[idx]
         state.positions = new_positions
+        
+        return []
 
     def up_and_down_step(
         self,
@@ -621,6 +635,7 @@ class torch_walker:
                 new_positions[mask] = positions[mask]
                 state.energy[idx] = E[idx]
         state.positions = new_positions
+        return []
 
     def walk(
         self,
@@ -643,6 +658,7 @@ class torch_walker:
         self.Emax = torch.tensor(
             [Emax], dtype=self.model.dtype, device=self.model.device
         )
+        self.step_size = step_size
 
         state = atoms_to_state(atoms, device=self.model.device, dtype=self.model.dtype)
         self.cell = state.cell[0].clone()
@@ -655,17 +671,13 @@ class torch_walker:
         n_att_acc = {"gmc": np.array([0, 0])}
         walk_len_so_far = 0
         while walk_len_so_far < walk_len:
-
+            walk_id = torch.multinomial(self.prop, num_samples=1, replacement=True)
             # returns list of tuples with move param attempt/success statistics
-            n_att_acc_walk = self.walk_pos_gmc(state, 10, step_size)
+            n_att_acc_walk = self.moves[walk_id](state)
             for param, n_att, n_acc in n_att_acc_walk:
                 n_att_acc[param] += (n_att, n_acc)
 
-            walk_len_so_far += 10
-
-        self.random_pos(state)
-        self.side_step(state)
-        self.up_and_down_step(state)
+            walk_len_so_far += self.len[walk_id]
 
         append_state_to_atoms(state, atoms)
 
