@@ -232,9 +232,6 @@ def append_state_to_atoms(state: "WalkState", atoms: list["Atoms"]) -> list["Ato
         atoms[sys_idx].info["NS_energy"] = energy[sys_idx]
 
 
-#        atoms_list.append(atoms)
-#
-#    return atoms_list
 
 
 def state_init(
@@ -312,7 +309,6 @@ class torch_walker:
 
     def __init__(
         self,
-        z_limits: list,
         model: ModelInterface,
         E_model: ModelInterface,
         atoms: Atoms,
@@ -326,6 +322,9 @@ class torch_walker:
             atoms (Atoms): ase atoms or meta data extraction
         """
         lattice = 4
+        self.species = {
+            25: 16, 27: 16, 28: 16, 30: 16
+        } #Todo Konni
         self.model = model
         self.E_model = E_model
         self.Emax = torch.tensor(
@@ -333,268 +332,10 @@ class torch_walker:
         )
         self.n_atoms = len(atoms)
         self.n_tags = int(sum(atoms.get_tags()))
-        # Todo check in cell math is correct (shouldn't matter in orthogonal systems)
-        cell = torch.tensor(
-            atoms.cell.array.T, device=self.model.device, dtype=self.model.dtype
-        )
-        self.xy_shift = self.get_xy_shift(cell, lattice)
-        self.xyz_shift = self.get_xyz_shift(cell, lattice)
-        self.lower = torch.tensor(
-            [z_limits[0] * np.linalg.norm(atoms.cell[2])],
-            dtype=self.model.dtype,
-            device=self.model.device,
-        )
-        self.upper = torch.tensor(
-            [z_limits[1] * np.linalg.norm(atoms.cell[2])],
-            dtype=self.model.dtype,
-            device=self.model.device,
-        )
-        possible_moves = {'gmc': self.walk_pos_gmc,
-                           'pos': self.random_pos,
-                           'updown': self.up_and_down_step,
-                           'side': self.side_step}
-        
-        self.moves = [possible_moves[i] for i in ['gmc','pos','updown','side']]
-        self.prop = torch.tensor([0.6, 0.08, 0.16, 0.16], dtype=self.model.dtype, device=self.model.device)
-        self.len = [10,1,1,1]
 
-        
-        
 
-    def get_xy_shift(
-        self,
-        cell: torch.Tensor,
-        lattice: int,
-    ) -> torch.Tensor:
-        """Setting up all possible side steps on the lattice
 
-        Args:
-            cell (torch.Tensor): Torchsim cell
-            lattice (int): lattice size
-
-        Returns:
-            torch.Tensor: all possible shifts
-        """
-        xy = torch.cartesian_prod(
-            torch.arange(
-                0, 1, 1 / lattice, dtype=self.model.dtype, device=self.model.device
-            ),
-            torch.arange(
-                0, 1, 1 / lattice, dtype=self.model.dtype, device=self.model.device
-            ),
-        )
-        shifts = torch.cat(
-            [
-                xy,
-                torch.zeros(
-                    (lattice * lattice, 1),
-                    dtype=self.model.dtype,
-                    device=self.model.device,
-                ),
-            ],
-            1,
-        )
-        return torch.matmul(shifts, cell)
-
-    def get_xyz_shift(
-        self,
-        cell: torch.Tensor,
-        lattice: int,
-    ) -> torch.Tensor:
-        """Setting up all possible up and down steps on the lattice
-
-        Args:
-            cell (torch.Tensor): Torchsim cell
-            lattice (int): lattice size
-
-        Returns:
-            torch.Tensor: all possible shifts
-        """
-        shifts = torch.cartesian_prod(
-            torch.arange(
-                0, 1, 1 / lattice, dtype=self.model.dtype, device=self.model.device
-            ),
-            torch.arange(
-                0, 1, 1 / lattice, dtype=self.model.dtype, device=self.model.device
-            ),
-            torch.tensor([-1, 1], dtype=self.model.dtype, device=self.model.device),
-        )
-        cell[2] *= 1.816 / torch.linalg.norm(cell[2])
-        return torch.matmul(shifts, cell)
-
-    def walk_pos_gmc(
-        self,
-        state: WalkState,
-        steps: int = 10,
-    ) -> list:
-        """Galilean Monte Carlo walk over n steps. Accepts walks in dependance on the energy and hard spheres
-
-        Args:
-            state (WalkState): Torchsim like state of batched atoms
-            steps (int): number of steps
-            step_size (float): standard deviation of normal distribution
-
-        Returns:
-            list: (move, accepted, total)
-        """
-        positions = state.positions.clone()
-
-        torch.zeros(
-            state.energy.shape, device=self.model.device, dtype=self.model.dtype
-        )
-        n_failed_in_a_row = 0
-        velocities = torch.einsum(
-            "ij,i->ij",
-            torch.normal(
-                0.0,
-                self.step_size,
-                size=positions.shape,
-                device=self.model.device,
-                dtype=self.model.dtype,
-            ),
-            state.tags,
-        )
-        for i_step in range(steps):
-            # GMC step
-            positions = positions.add(velocities)
-            reflect_v_z(
-                positions=positions,
-                velocities=velocities,
-                tags=state.tags,
-                lower=self.lower,
-                upper=self.upper,
-            )
-            results = self.model(
-                dict(
-                    positions=positions,
-                    cell=state.cell,
-                    atomic_numbers=state.atomic_numbers,
-                    system_idx=state.system_idx,
-                    pbc=True,
-                )
-            )
-            E = results["energy"]
-            mask = (E >= self.Emax).to(torch.int32)
-
-            F = torch.einsum("ij,i->ij", results["forces"], state.tags)
-            F = F.reshape((state.n_systems, self.n_atoms, 3))
-            velocities = velocities.reshape(F.shape)
-
-            Norm = torch.einsum("ijk,ijk->i", F, F)
-            F_hat = torch.einsum("lik,l->lik", F, 1 / torch.sqrt(Norm))
-            projection = 2 * torch.einsum(
-                "ijk,imn,imn,i->ijk", F_hat, velocities, F_hat, mask
-            )
-            velocities = torch.reshape(velocities - projection, positions.shape)
-
-            n_failed_in_a_row += mask
-            n_failed_in_a_row = torch.where(
-                n_failed_in_a_row < 2, n_failed_in_a_row * mask, mask
-            )
-
-        successful = torch.logical_and(n_failed_in_a_row == 0, results["collision"])
-        new_positions = state.positions.clone()
-        for idx, val in enumerate(successful):
-            if val:
-                mask = state.system_idx == idx
-                new_positions[mask] = positions[mask]
-                state.energy[idx] = E[idx]
-        state.positions = new_positions
-
-        return [("gmc", len(successful), int(torch.sum(successful.to(torch.int32))))]
-
-    def random_pos(
-        self,
-        state: WalkState,
-    )->None:
-        """Walks a single atom by a random position for each batched systeme
-
-        Args:
-            state (WalkState): Torchsim like state of batched atoms
-        """
-        positions = state.positions.clone()
-        idx = batch_random_id(
-            self.n_atoms,
-            state.n_systems,
-            self.n_tags,
-            state.tags,
-            device=self.model.device,
-        )
-        positions[idx] = torch.matmul(
-            torch.rand(
-                (state.n_systems, 3), dtype=self.model.dtype, device=self.model.device
-            ),
-            self.cell,
-        ) + torch.tensor(
-            [[0.0, 0.0, self.lower]] * state.n_systems,
-            dtype=self.model.dtype,
-            device=self.model.device,
-        )
-
-        results = self.E_model(
-            dict(
-                positions=positions,
-                cell=state.cell,
-                atomic_numbers=state.atomic_numbers,
-                system_idx=state.system_idx,
-                pbc=True,
-            )
-        )
-        E = results["energy"]
-
-        new_positions = state.positions.clone()
-        successful = torch.logical_and(E <= self.Emax, results["collision"])
-        for idx, val in enumerate(successful):
-            if val:
-                mask = state.system_idx == idx
-                new_positions[mask] = positions[mask]
-                state.energy[idx] = E[idx]
-        state.positions = new_positions
-
-        return []
-
-    def side_step(
-        self,
-        state: WalkState,
-    )->None:
-        """Walks a single atom on the lattice position for each batched systeme
-
-        Args:
-            state (WalkState): Torchsim like state of batched atoms
-        """
-        positions = state.positions.clone()
-        idx = batch_random_id(
-            self.n_atoms,
-            state.n_systems,
-            self.n_tags,
-            state.tags,
-            device=self.model.device,
-        )
-        positions[idx] += self.xy_shift[torch.randint(1, 16, (state.n_systems,))]
-
-        results = self.E_model(
-            dict(
-                positions=positions,
-                cell=state.cell,
-                atomic_numbers=state.atomic_numbers,
-                system_idx=state.system_idx,
-                pbc=True,
-            )
-        )
-        E = results["energy"]
-
-        new_positions = state.positions.clone()
-        successful = torch.logical_and(E <= self.Emax, results["collision"])
-        for idx, val in enumerate(successful):
-            if val:
-                mask = state.system_idx == idx
-                new_positions[mask] = positions[mask]
-                state.energy[idx] = E[idx]
-        state.positions = new_positions
-        
-        return []
-
-    def up_and_down_step(
+    def id_change(
         self,
         state: WalkState,
     )->None:
@@ -603,38 +344,48 @@ class torch_walker:
         Args:
             state (WalkState): Torchsim like state of batched atoms
         """
-        positions = state.positions.clone()
-        idx = batch_random_id(
+        atomic_numbers = state.atomic_numbers.clone()
+        exchange_specs = [27,28,25,30] #Todo Konni 
+        s_ids = torch.multinomial(torch.tensor([1.,1.,1.],device=self.model.device, dtype=self.model.dtype), num_samples=2, replacement=False)
+        id_0 = batch_random_species(
             self.n_atoms,
             state.n_systems,
-            self.n_tags,
-            state.tags,
+            n_species = self.species[exchange_specs[s_ids[0]]],
+            species=exchange_specs[s_ids[0]],
+            atomic_number=atomic_numbers,
             device=self.model.device,
         )
-        positions[idx] += self.xyz_shift[torch.randint(0, 16 * 2, (state.n_systems,))]
-        reflect_z(
-            positions=positions, tags=state.tags, lower=self.lower, upper=self.upper
+        id_1 = batch_random_species(
+            self.n_atoms,
+            state.n_systems,
+            n_species = self.species[exchange_specs[s_ids[1]]],
+            species=exchange_specs[s_ids[1]],
+            atomic_number=atomic_numbers,
+            device=self.model.device,
         )
+        atomic_numbers[id_1] = state.atomic_numbers[id_0]
+        atomic_numbers[id_0] = state.atomic_numbers[id_1]
+
 
         results = self.E_model(
             dict(
-                positions=positions,
+                positions=state.positions,
                 cell=state.cell,
-                atomic_numbers=state.atomic_numbers,
+                atomic_numbers=atomic_numbers,
                 system_idx=state.system_idx,
                 pbc=True,
             )
         )
         E = results["energy"]
 
-        new_positions = state.positions.clone()
-        successful = torch.logical_and(E <= self.Emax, results["collision"])
+        new_atomic_numbers = state.atomic_numbers.clone()
+        successful = E <= self.Emax
         for idx, val in enumerate(successful):
             if val:
                 mask = state.system_idx == idx
-                new_positions[mask] = positions[mask]
+                new_atomic_numbers[mask] = atomic_numbers[mask]
                 state.energy[idx] = E[idx]
-        state.positions = new_positions
+        state.atomic_numbers = new_atomic_numbers
         return []
 
     def walk(
@@ -642,7 +393,6 @@ class torch_walker:
         atoms: list["Atoms"],
         walk_len: int,
         Emax: float,
-        step_size: float,
     ) -> dict:
         """Convertion of ase.Atoms into TorchSim - WalkState. Combined MC walk and update of ase.Atoms.
 
@@ -658,31 +408,37 @@ class torch_walker:
         self.Emax = torch.tensor(
             [Emax], dtype=self.model.dtype, device=self.model.device
         )
-        self.step_size = step_size
 
         state = atoms_to_state(atoms, device=self.model.device, dtype=self.model.dtype)
-        self.cell = state.cell[0].clone()
-        self.cell[2] = torch.tensor(
-            [0, 0, self.upper - self.lower],
-            device=self.model.device,
-            dtype=self.model.dtype,
-        )
 
-        n_att_acc = {"gmc": np.array([0, 0])}
-        walk_len_so_far = 0
-        while walk_len_so_far < walk_len:
-            walk_id = torch.multinomial(self.prop, num_samples=1, replacement=True)
-            # returns list of tuples with move param attempt/success statistics
-            n_att_acc_walk = self.moves[walk_id](state)
-            for param, n_att, n_acc in n_att_acc_walk:
-                n_att_acc[param] += (n_att, n_acc)
-
-            walk_len_so_far += self.len[walk_id]
+        n_att_acc = {"gmc": np.array([7, 10])}
+        
+        for i in range(walk_len):
+            self.id_change(state)
 
         append_state_to_atoms(state, atoms)
 
         return n_att_acc
 
+
+@torch.jit.script
+def batch_random_species(
+    n_atoms: int,
+    n_systems: int,
+    n_species: int,
+    species: int,
+    atomic_number: torch.Tensor,
+    device: torch.device,
+    dtype: torch.dtype = torch.int32,
+) -> torch.Tensor:
+    possible_idx = torch.arange(n_atoms * n_systems, dtype=dtype, device=device)[
+        atomic_number == species
+    ]
+    idx = possible_idx[
+        torch.randint(low=0, high=n_species, size=(n_systems,), dtype=dtype, device=device)
+        + torch.arange(0, n_species * n_systems, n_species, dtype=dtype, device=device)
+    ]
+    return idx
 
 @torch.jit.script
 def batch_random_id(
@@ -702,36 +458,3 @@ def batch_random_id(
     ]
     return idx
 
-
-@torch.jit.script
-def reflect_v_z(
-    positions: torch.Tensor,
-    velocities: torch.Tensor,
-    tags: torch.Tensor,
-    lower: torch.Tensor,
-    upper: torch.Tensor,
-) -> None:
-    z = positions.select(1, 2)
-    vz = velocities.select(1, 2)
-
-    above = torch.logical_and(z > upper, tags)
-    below = torch.logical_and(z < lower, tags)
-    mask = above | below
-
-    vz.mul_(mask.to(vz.dtype).mul_(-2).add_(1))  # in-place sign flip
-    z.copy_(torch.where(above, 2 * upper - z, torch.where(below, 2 * lower - z, z)))
-
-
-@torch.jit.script
-def reflect_z(
-    positions: torch.Tensor,
-    tags: torch.Tensor,
-    lower: torch.Tensor,
-    upper: torch.Tensor,
-) -> None:
-    z = positions.select(1, 2)
-
-    above = torch.logical_and(z > upper, tags)
-    below = torch.logical_and(z < lower, tags)
-
-    z.copy_(torch.where(above, 2 * upper - z, torch.where(below, 2 * lower - z, z)))

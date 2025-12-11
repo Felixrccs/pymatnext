@@ -327,14 +327,6 @@ def sample(args, MPI, NS_comm, walker_comm):
             )
             ns_file.flush()
 
-        # tune step sizes at some iteration interval
-        if step_size_tune_interval > 0 and loop_iter % step_size_tune_interval == 0 and loop_iter>0:
-            ns.step_size_tune_on_the_fly(
-                last_frec=acceptance,
-                min_accept_rate=params_step_size_tune["min_accept_rate"],
-                max_accept_rate=params_step_size_tune["max_accept_rate"],
-                adjust_factor=params_step_size_tune["adjust_factor"],
-            )
 
         # pick random config as source for clone.
         global_ind_of_max = ns.global_ind(ns.rank_of_max, ns.local_ind_of_max)
@@ -403,7 +395,7 @@ def sample(args, MPI, NS_comm, walker_comm):
             # walk a random config
             xi_walk = list(ns.rng_local.integers(0, ns.n_configs_local, ns.parallel))
 
-        n_att_acc = ns.walker.walk([ns.local_configs[k].atoms for k in xi_walk], 20, ns.max_val, ns.local_configs[0].step_size['gmc'])
+        n_att_acc = ns.walker.walk([ns.local_configs[k].atoms for k in xi_walk], 4, ns.max_val) #Todo Konni Walk len is hard coded at 4
 
         #for k, idx in enumerate(xi_walk):
         #    ns.local_configs[idx].atoms = atoms[k]

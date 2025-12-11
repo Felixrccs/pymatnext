@@ -186,10 +186,6 @@ class NSConfig_ASE_Atoms:
             n_dims = params["dims"]
             pbc = params["pbc"]
 
-            # include limits
-            initial_limits = np.array([[0.0, 1.0], [0.0, 1.0], [0.0, 1.0]])
-            initial_limits[2] = self.limit
-
             self.min_dist = params["initial_rand_min_dist"]
             initial_rand_n_tries = params["initial_rand_n_tries"]
 
@@ -232,97 +228,26 @@ class NSConfig_ASE_Atoms:
                 F += F_off_diag
                 cell = cell @ F
 
-            # uniform positions
-            if allocate_only:
-                scaled_positions = np.zeros((n_atoms, 3))
-            else:
-                scaled_positions = rng.uniform(size=(n_atoms, 3))
-                rescale = [
-                    initial_limits[0, 1] - initial_limits[0, 0],
-                    initial_limits[1, 1] - initial_limits[1, 0],
-                    initial_limits[2, 1] - initial_limits[2, 0],
-                ]
-                delta = [
-                    initial_limits[0, 0],
-                    initial_limits[1, 0],
-                    initial_limits[2, 0],
-                ]
-                scaled_positions = scaled_positions * rescale + delta
-
             # create Atoms object or extend seed_config
             if isinstance(seed_config, Atoms):
-                d = [" "]
-                i_iter = 0
-                # rattle precondensed atoms
-                while len(d) > 0 and i_iter < initial_rand_n_tries:
-                    tmp_seed = deepcopy(seed_config)
-                    # rattle precondensed atoms
-                    tmp_seed.positions += rng.normal(
-                        scale=0.005, size=seed_config.positions.shape
-                    ) * np.broadcast_to(
-                        tmp_seed.get_tags()[:, None], (len(tmp_seed), 3)
-                    )
-                    d = neighbor_list(
-                        "d",
-                        tmp_seed,
-                        cutoff=self.min_dist,
-                        self_interaction=False,
-                    )
-                    i_iter += 1
+                tmp_seed = deepcopy(seed_config)
+                at_numbers = tmp_seed.get_atomic_numbers()
+                at_ids = np.where(np.logical_or(at_numbers == 25, np.logical_or(at_numbers == 27, np.logical_or(at_numbers == 28, at_numbers == 30))))[0]
+                new_ids = deepcopy(at_ids)
+                rng.shuffle(new_ids)
+                at_numbers[at_ids] = at_numbers[new_ids]
+                tmp_seed.set_atomic_numbers(at_numbers)
+                tags = tmp_seed.get_tags()
+                tags[at_ids]+=1
+                tmp_seed.set_tags(tags)
 
-                tmp_seed.extend(
-                    Atoms(
-                        numbers=numbers,
-                        cell=cell,
-                        scaled_positions=scaled_positions,
-                        pbc=pbc,
-                        tags=np.ones(n_atoms),
-                    )
-                )
                 self.atoms = AtomsContiguousStorage(tmp_seed)
             else:
-                self.atoms = AtomsContiguousStorage(
-                    numbers=numbers,
-                    cell=cell,
-                    scaled_positions=scaled_positions,
-                    pbc=pbc,
-                    tags=np.ones(n_atoms),
-                )
+                raise RuntimeError(
+                            f"No seed_config"
+                        )
 
-            if not allocate_only and self.min_dist is not None:
-                d = neighbor_list(
-                    "d",
-                    self.atoms,
-                    cutoff=self.min_dist,
-                    self_interaction=False,
-                )
-                i_iter = 0
-                while len(d) > 0 and i_iter < initial_rand_n_tries:
-                    if isinstance(seed_config, Atoms):
-                        tmp_pos = self.atoms.get_scaled_positions()
-                        tmp_pos[len(seed_config) :] = (
-                            rng.uniform(size=((n_atoms, 3))) * rescale + delta
-                        )
-                        self.atoms.set_scaled_positions(tmp_pos)
-                    else:
-                        self.atoms.set_scaled_positions(
-                            rng.uniform(size=((n_atoms, 3)))
-                        )
-                    d = neighbor_list(
-                        "d",
-                        self.atoms,
-                        cutoff=self.min_dist,
-                        self_interaction=False,
-                    )
-                    i_iter += 1
-                if i_iter > 0:
-                    if len(d) > 0:
-                        raise RuntimeError(
-                            f"Failed to make initial configuration in {i_iter} tries"
-                        )
-                    warnings.warn(
-                        f"Required {i_iter} iterations to get a valid initial config"
-                    )
+            
         elif isinstance(source, Atoms):
             self.atoms = AtomsContiguousStorage(source)
         else:
@@ -405,36 +330,12 @@ class NSConfig_ASE_Atoms:
         self.walk_prob /= np.sum(self.walk_prob)
         self.move_params = {}
 
-        # parameters for cell moves
-        # self.move_params["cell"] = deepcopy(params["cell"])
-        # normalization = sum(self.move_params["cell"]["submove_probabilities"].values())
-        # self.move_params["cell"]["submove_probabilities"] = {
-        #    k: v / normalization
-        #    for k, v in self.move_params["cell"]["submove_probabilities"].items()
-        # }
-        # if "pressure_GPa" in self.move_params["cell"]:
-        #    if self.move_params["cell"].get("pressure", None) is not None:
-        #        raise ValueError("Got both cell.pressure and cell.pressure_GPa")
-        #    self.pressure = self.move_params["cell"]["pressure_GPa"] * ase.units.GPa
-        # elif "pressure" in self.move_params["cell"]:
-        #    self.pressure = self.move_params["cell"]["pressure"]
-        # else:
-        #    self.pressure = 0.0
 
         self.pressure = 0.0
 
         # mu always needs to be defined, since it'll be used for energy shift
         self.mu = np.zeros(len(ase.data.chemical_symbols))
-        # parameters for type moves
-        # self.move_params["type"] = deepcopy(params["type"])
-        # if self.move_params["type"]["sGC"]:
-        #    if self.move_params["type"].get("mu", {}) == 0:
-        #        raise ValueError("if 'sGC' is specified, 'mu' is also required")
-        #    mus = self.move_params["type"].pop("mu")
-        #    Zs = [int(k) for k in mus.keys()]
-        #    self.mu[Zs] = list(mus.values())
-
-        #    assert set(Zs) == set(self._Zs)
+        
 
         # max step sizes
         self._step_size_params= []
@@ -458,10 +359,7 @@ class NSConfig_ASE_Atoms:
             for k, v in self.step_size.items()
         }
 
-        # store lattice
-        # self.lattice = params["lattice"]
-
-        # store function pointers for moves
+        
         self.walk_func = {}
 
         for move in NSConfig_ASE_Atoms._walk_moves:
