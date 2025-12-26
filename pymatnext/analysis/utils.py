@@ -96,6 +96,7 @@ def analyse_T(T, Es, E_shift, Vs, extra_vals, log_a, flat_V_prior, N_atoms, kB, 
     -------
     dict of enesmble averages of various thermodynamic quantities and extra_vals
     """
+    print(N_atoms)
     beta = 1.0 / (kB * T)
 
     # Z_term here is actually Z_term_true * exp(-log_shift)

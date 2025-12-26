@@ -34,6 +34,7 @@ def main():
     p.add_argument('--dT', '-D',  help="""Temperature step""",type=float,required=True)
     p.add_argument('--nT', '-n',  help="""Number of temperatures""",type=int,required=True)
     p.add_argument('--kB', '-k',  help="""Boltzmann constant (defaults to eV/K)""", type=float, default=8.6173324e-5)
+    p.add_argument('--natoms',  help="""Number of moving atoms""", type=int, default=None)
     p.add_argument('--accurate_sum', action='store_true', help="""use more accurate sum (math.fsum)""")
     p.add_argument('--verbose', '-v', action='store_true', help="""Verbose output (for debugging)""")
     p.add_argument('--line_skip', '-s',  help="""number of lines to skip""", type=int, default=0)
@@ -51,6 +52,7 @@ def main():
     p.add_argument('--plot_twinx_spacing', type=float, help="""spacing for extra twinx y axes""", default=0.15)
     p.add_argument('--quiet', '-q', action='store_true', help="""No progress output""")
     p.add_argument('infile', nargs='+', help="""input energies file, or old analysis files for replotting only (all actual analysis flags will be ignore)""")
+    
 
     args = p.parse_args()
 
@@ -153,11 +155,14 @@ def main():
             vals = np.asarray(vals)
 
             # pointer to natoms
-            try:
-                natoms_ind = header['extras'].index('natoms')
-                natoms = vals[:, natoms_ind]
-            except (KeyError, ValueError):
-                natoms = None
+            if args.natoms is not None:
+                natoms = np.ones_like(iters)*args.natoms
+            else:
+                try:
+                    natoms_ind = header['extras'].index('natoms')
+                    natoms = vals[:, natoms_ind]
+                except (KeyError, ValueError):
+                    natoms = None
             # pull out Vs
             try:
                 vol_ind = header['extras'].index('volume')

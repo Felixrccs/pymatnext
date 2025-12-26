@@ -11,6 +11,7 @@ from torch_sim.state import SimState
 # from torch_sim.neighbors import primitive_neighbor_list
 import torch_sim.math as fm
 from torch_sim import transforms
+from scipy.spatial.transform import Rotation as R
 
 from ase import Atoms
 from .atoms_contig_store import AtomsContiguousStorage
@@ -326,6 +327,7 @@ class torch_walker:
             atoms (Atoms): ase atoms or meta data extraction
         """
         lattice = 4
+        orientation = 'tilted'
         self.model = model
         self.E_model = E_model
         self.Emax = torch.tensor(
@@ -337,8 +339,13 @@ class torch_walker:
         cell = torch.tensor(
             atoms.cell.array.T, device=self.model.device, dtype=self.model.dtype
         )
-        self.xy_shift = self.get_xy_shift(cell, lattice)
-        self.xyz_shift = self.get_xyz_shift(cell, lattice)
+        if orientation == 'tilted':
+            self.xy_shift = self.get_xy_shift_tilted(cell, lattice)
+            self.xyz_shift = self.get_xyz_shift_tilted(cell, lattice)
+            print('##############  Use tilted ########')
+        else:
+            self.xy_shift = self.get_xy_shift(cell, lattice)
+            self.xyz_shift = self.get_xyz_shift(cell, lattice)
         self.lower = torch.tensor(
             [z_limits[0] * np.linalg.norm(atoms.cell[2])],
             dtype=self.model.dtype,
@@ -349,6 +356,18 @@ class torch_walker:
             dtype=self.model.dtype,
             device=self.model.device,
         )
+        possible_moves = {'gmc': self.walk_pos_gmc,
+                           'pos': self.random_pos,
+                           'updown': self.up_and_down_step,
+                           'side': self.side_step}
+        
+        self.moves = [possible_moves[i] for i in ['gmc','pos','updown','side']]
+        self.prop = torch.tensor([0.6, 0.08, 0.16, 0.16], dtype=self.model.dtype, device=self.model.device)
+        #self.prop = torch.tensor([0.6, 0.0, 0.0, 0.0], dtype=self.model.dtype, device=self.model.device)
+        self.len = [10,1,1,1]
+
+        
+        
 
     def get_xy_shift(
         self,
@@ -399,6 +418,7 @@ class torch_walker:
         Returns:
             torch.Tensor: all possible shifts
         """
+        #Todo shift by 1/2
         shifts = torch.cartesian_prod(
             torch.arange(
                 0, 1, 1 / lattice, dtype=self.model.dtype, device=self.model.device
@@ -410,12 +430,111 @@ class torch_walker:
         )
         cell[2] *= 1.816 / torch.linalg.norm(cell[2])
         return torch.matmul(shifts, cell)
+    
+
+    def get_xy_shift_tilted(
+        self,
+        cell: torch.Tensor,
+        lattice: int,
+    ) -> torch.Tensor:
+        """Setting up all possible side steps on the lattice
+
+        Args:
+            cell (torch.Tensor): Torchsim cell
+            lattice (int): lattice size
+
+        Returns:
+            torch.Tensor: all possible shifts
+        """
+        lattice *=2 # needed for adjustment for tilted lattice
+        xy = torch.cartesian_prod(
+            torch.arange(
+                0, np.sqrt(2) , np.sqrt(2) / lattice, dtype=self.model.dtype, device=self.model.device
+            ),
+            torch.arange(
+                0, np.sqrt(2) , np.sqrt(2) / lattice, dtype=self.model.dtype, device=self.model.device
+            ),
+        )
+        shifts = torch.cat(
+            [
+                xy,
+                torch.zeros(
+                    (lattice * lattice, 1),
+                    dtype=self.model.dtype,
+                    device=self.model.device,
+                ),
+            ],
+            1,
+        )
+
+
+        r = R.from_euler('z', -45, degrees=True)
+        rotation = torch.tensor(r.as_matrix(), dtype=self.model.dtype, device=self.model.device)
+        shifts = torch.matmul(shifts,rotation)
+
+        shifted = torch.logical_and(shifts.T[0] < -0.01, shifts.T[1]> 0.99)
+        original = torch.logical_and(shifts.T[0] > -0.01, shifts.T[1] <0.99)
+
+        final_shifts = []
+        for i, val in enumerate(original):
+            if val:
+                final_shifts.append(shifts[i])
+            elif shifted[i]:
+                final_shifts.append(shifts[i]-torch.tensor([-1,1,0]))
+
+        shifts = torch.stack(final_shifts)
+
+        return torch.matmul(shifts, cell)
+
+    def get_xyz_shift_tilted(
+        self,
+        cell: torch.Tensor,
+        lattice: int,
+    ) -> torch.Tensor:
+        """Setting up all possible side steps on the lattice
+
+        Args:
+            cell (torch.Tensor): Torchsim cell
+            lattice (int): lattice size
+
+        Returns:
+            torch.Tensor: all possible shifts
+        """
+        lattice *=2 # needed for adjustment for tilted lattice
+        xyz = torch.cartesian_prod(
+            torch.arange(
+                0, np.sqrt(2) , np.sqrt(2) / lattice, dtype=self.model.dtype, device=self.model.device
+            ),
+            torch.arange(
+                0, np.sqrt(2) , np.sqrt(2) / lattice, dtype=self.model.dtype, device=self.model.device
+            ),
+            torch.tensor([-1, 1], dtype=self.model.dtype, device=self.model.device),
+        )
+        cell[2] *= 1.816 / torch.linalg.norm(cell[2])
+
+
+        r = R.from_euler('z', -45, degrees=True)
+        rotation = torch.tensor(r.as_matrix(), dtype=self.model.dtype, device=self.model.device)
+        shifts = torch.matmul(xyz,rotation)
+
+        shifted = torch.logical_and(shifts.T[0] < -0.01, shifts.T[1]> 0.99)
+        original = torch.logical_and(shifts.T[0] > -0.01, shifts.T[1] <0.99)
+
+        final_shifts = []
+        for i, val in enumerate(original):
+            if val:
+                final_shifts.append(shifts[i]+torch.tensor([0,1/lattice,0]))
+            elif shifted[i]:
+                final_shifts.append(shifts[i]-torch.tensor([-1,1,0])+torch.tensor([0,1/lattice,0]))
+
+        shifts = torch.stack(final_shifts)
+
+        return torch.matmul(shifts, cell)
 
     def walk_pos_gmc(
         self,
         state: WalkState,
-        steps: int,
-        step_size: float,
+        steps: int = 10,
     ) -> list:
         """Galilean Monte Carlo walk over n steps. Accepts walks in dependance on the energy and hard spheres
 
@@ -437,13 +556,14 @@ class torch_walker:
             "ij,i->ij",
             torch.normal(
                 0.0,
-                step_size,
+                self.step_size,
                 size=positions.shape,
                 device=self.model.device,
                 dtype=self.model.dtype,
             ),
             state.tags,
         )
+
         for i_step in range(steps):
             # GMC step
             positions = positions.add(velocities)
@@ -475,7 +595,7 @@ class torch_walker:
             projection = 2 * torch.einsum(
                 "ijk,imn,imn,i->ijk", F_hat, velocities, F_hat, mask
             )
-            velocities = torch.reshape(velocities - projection, positions.shape)
+            velocities = torch.nan_to_num(torch.reshape(velocities - projection, positions.shape))
 
             n_failed_in_a_row += mask
             n_failed_in_a_row = torch.where(
@@ -541,6 +661,8 @@ class torch_walker:
                 state.energy[idx] = E[idx]
         state.positions = new_positions
 
+        return []
+
     def side_step(
         self,
         state: WalkState,
@@ -579,6 +701,8 @@ class torch_walker:
                 new_positions[mask] = positions[mask]
                 state.energy[idx] = E[idx]
         state.positions = new_positions
+        
+        return []
 
     def up_and_down_step(
         self,
@@ -621,6 +745,7 @@ class torch_walker:
                 new_positions[mask] = positions[mask]
                 state.energy[idx] = E[idx]
         state.positions = new_positions
+        return []
 
     def walk(
         self,
@@ -643,6 +768,7 @@ class torch_walker:
         self.Emax = torch.tensor(
             [Emax], dtype=self.model.dtype, device=self.model.device
         )
+        self.step_size = step_size
 
         state = atoms_to_state(atoms, device=self.model.device, dtype=self.model.dtype)
         self.cell = state.cell[0].clone()
@@ -655,17 +781,13 @@ class torch_walker:
         n_att_acc = {"gmc": np.array([0, 0])}
         walk_len_so_far = 0
         while walk_len_so_far < walk_len:
-
+            walk_id = torch.multinomial(self.prop, num_samples=1, replacement=True)
             # returns list of tuples with move param attempt/success statistics
-            n_att_acc_walk = self.walk_pos_gmc(state, 10, step_size)
+            n_att_acc_walk = self.moves[walk_id](state)
             for param, n_att, n_acc in n_att_acc_walk:
                 n_att_acc[param] += (n_att, n_acc)
 
-            walk_len_so_far += 10
-
-        self.random_pos(state)
-        self.side_step(state)
-        self.up_and_down_step(state)
+            walk_len_so_far += self.len[walk_id]
 
         append_state_to_atoms(state, atoms)
 
