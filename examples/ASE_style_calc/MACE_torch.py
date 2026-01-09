@@ -7,6 +7,9 @@ from batch_nl import NeighbourList
 
 torch.set_float32_matmul_precision('high')
 
+
+
+
 def new_forward(self, state: ts.SimState | ts.typing.StateDict) -> dict[str, torch.Tensor]:  # noqa: C901
         """Compute energies, forces, and stresses for the given atomic systems.
 
@@ -211,6 +214,24 @@ def new__init__(self,
     # compiled neighbour-list function
     self._nlist_ON2_compiled = torch.compile(self._nlist_ON2)
 
+
+def wrap_positions_triclinic_batched(batched_positions, batched_cells):
+    """
+    batched_positions: (B, N, 3) Cartesian coordinates
+    batched_cells: (B, 3, 3) cell matrices (rows = lattice vectors)
+    """
+    H_inv = torch.inverse(batched_cells)                     # (B, 3, 3)
+
+    # Cartesian → fractional
+    frac = torch.matmul(batched_positions, H_inv.transpose(-1, -2))   # (B, N, 3)
+
+    # Wrap fractional coords into [0.0, 1.0)
+    frac_wrapped = frac % 1.0
+    # Fractional → Cartesian
+    batched_positions_wrapped = torch.matmul(frac_wrapped, batched_cells)         # (B, N, 3)
+    return batched_positions_wrapped
+
+
 def new_load_data(self):
         """
         Convert input positions and cells into padded batched tensors.
@@ -230,7 +251,7 @@ def new_load_data(self):
 
         self.batch_mask_tensor = (self.batch_positions_tensor == self.batch_positions_tensor).any(dim=-1)
 
-        self.batch_positions_tensor = torch.nan_to_num(self.batch_positions_tensor, nan=0)
+        self.batch_positions_tensor = wrap_positions_triclinic_batched(torch.nan_to_num(self.batch_positions_tensor, nan=0), self.batch_cell_tensor)
 
 
 def new_calculate_neighbourlist(self, use_torch_compile: bool = True):

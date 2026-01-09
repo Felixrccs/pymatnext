@@ -342,10 +342,11 @@ class torch_walker:
         if orientation == 'tilted':
             self.xy_shift = self.get_xy_shift_tilted(cell, lattice)
             self.xyz_shift = self.get_xyz_shift_tilted(cell, lattice)
-            print('##############  Use tilted ########')
+            print('#################  Use tilted #################')
         else:
             self.xy_shift = self.get_xy_shift(cell, lattice)
             self.xyz_shift = self.get_xyz_shift(cell, lattice)
+
         self.lower = torch.tensor(
             [z_limits[0] * np.linalg.norm(atoms.cell[2])],
             dtype=self.model.dtype,
@@ -356,15 +357,42 @@ class torch_walker:
             dtype=self.model.dtype,
             device=self.model.device,
         )
+        at_numbers = atoms.get_atomic_numbers()[np.where(atoms.get_tags())[0]]
+        self.species = {}
+        self.species_keys = []
+        for idx, count in np.array(np.unique(at_numbers, return_counts=True)).T:
+            self.species[idx] = count
+            self.species_keys.append(idx)
+        print(self.species)
+        self.species_propability = torch.tensor([1.]*len(self.species), dtype=self.model.dtype, device=self.model.device)
+
         possible_moves = {'gmc': self.walk_pos_gmc,
                            'pos': self.random_pos,
                            'updown': self.up_and_down_step,
-                           'side': self.side_step}
+                           'side': self.side_step,
+                           'id': self.id_change}
         
-        self.moves = [possible_moves[i] for i in ['gmc','pos','updown','side']]
-        self.prop = torch.tensor([0.6, 0.08, 0.16, 0.16], dtype=self.model.dtype, device=self.model.device)
-        #self.prop = torch.tensor([0.6, 0.0, 0.0, 0.0], dtype=self.model.dtype, device=self.model.device)
-        self.len = [10,1,1,1]
+        move_len = {'gmc': 10,
+                    'pos': 1,
+                    'updown': 1,
+                    'side': 1,
+                    'id': 1}
+        
+        move_propability = {'gmc': 0.6,
+                            'pos': 0.08,
+                            'updown': 0.16,
+                            'side': 0.16,
+                            'id': 0.08}
+
+        if len(self.species) >1:
+            print('############ Include exchange move ############')
+            moves = ['gmc','pos','updown','side','id']
+        else:
+            moves = ['gmc','pos','updown','side']
+
+        self.moves = [possible_moves[i] for i in moves]
+        self.prop = torch.tensor([move_propability[i] for i in moves], dtype=self.model.dtype, device=self.model.device)
+        self.len = [move_len[i] for i in moves]
 
         
         
@@ -747,6 +775,60 @@ class torch_walker:
         state.positions = new_positions
         return []
 
+    def id_change(
+        self,
+        state: WalkState,
+    )->None:
+        """Walks a single atom up or down a step for each batched systeme
+
+        Args:
+            state (WalkState): Torchsim like state of batched atoms
+        """
+        atomic_numbers = state.atomic_numbers.clone()
+        s_ids = torch.multinomial(self.species_propability, num_samples=2, replacement=False)
+        id_0 = batch_random_species(
+            self.n_atoms,
+            state.n_systems,
+            n_species = self.species[self.species_keys[s_ids[0]]],
+            species=self.species_keys[s_ids[0]],
+            atomic_number=atomic_numbers,
+            tags=state.tags,
+            device=self.model.device,
+        )
+        id_1 = batch_random_species(
+            self.n_atoms,
+            state.n_systems,
+            n_species = self.species[self.species_keys[s_ids[1]]],
+            species=self.species_keys[s_ids[1]],
+            atomic_number=atomic_numbers,
+            tags=state.tags,
+            device=self.model.device,
+        )
+        atomic_numbers[id_1] = state.atomic_numbers[id_0]
+        atomic_numbers[id_0] = state.atomic_numbers[id_1]
+
+
+        results = self.E_model(
+            dict(
+                positions=state.positions,
+                cell=state.cell,
+                atomic_numbers=atomic_numbers,
+                system_idx=state.system_idx,
+                pbc=True,
+            )
+        )
+        E = results["energy"]
+
+        new_atomic_numbers = state.atomic_numbers.clone()
+        successful = E <= self.Emax
+        for idx, val in enumerate(successful):
+            if val:
+                mask = state.system_idx == idx
+                new_atomic_numbers[mask] = atomic_numbers[mask]
+                state.energy[idx] = E[idx]
+        state.atomic_numbers = new_atomic_numbers
+        return []
+
     def walk(
         self,
         atoms: list["Atoms"],
@@ -809,6 +891,27 @@ def batch_random_id(
     idx = possible_idx[
         torch.randint(low=0, high=n_tags, size=(n_systems,), dtype=dtype, device=device)
         + torch.arange(0, n_tags * n_systems, n_tags, dtype=dtype, device=device)
+    ]
+    return idx
+
+
+@torch.jit.script
+def batch_random_species(
+    n_atoms: int,
+    n_systems: int,
+    n_species: int,
+    species: int,
+    atomic_number: torch.Tensor,
+    tags: torch.Tensor,
+    device: torch.device,
+    dtype: torch.dtype = torch.int32,
+) -> torch.Tensor:
+    possible_idx = torch.arange(n_atoms * n_systems, dtype=dtype, device=device)[
+        torch.logical_and(atomic_number == species, tags==1)
+    ]
+    idx = possible_idx[
+        torch.randint(low=0, high=n_species, size=(n_systems,), dtype=dtype, device=device)
+        + torch.arange(0, n_species * n_systems, n_species, dtype=dtype, device=device)
     ]
     return idx
 
