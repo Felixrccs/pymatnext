@@ -68,10 +68,11 @@ def new_forward(self, state: ts.SimState | ts.typing.StateDict) -> dict[str, tor
             )
         ):
             self.setup_from_system_idx(sim_state.atomic_numbers, sim_state.system_idx)
+        positions = sim_state.positions.clone() % torch.diagonal(sim_state.row_vector_cell[0]) # wrapping for orthoromic cell
 
 
         nl = NeighbourList(
-            positions=sim_state.positions,
+            positions=positions,
             system_idx=sim_state.system_idx,
             cells=sim_state.row_vector_cell,
             cutoff=self.r_max,
@@ -108,7 +109,7 @@ def new_forward(self, state: ts.SimState | ts.typing.StateDict) -> dict[str, tor
                 batch=sim_state.system_idx,
                 pbc=sim_state.pbc,
                 cell=sim_state.row_vector_cell,
-                positions=sim_state.positions,
+                positions=positions,
                 edge_index=edge_index,
                 unit_shifts=unit_shifts,
                 shifts=shifts,
@@ -251,7 +252,7 @@ def new_load_data(self):
 
         self.batch_mask_tensor = (self.batch_positions_tensor == self.batch_positions_tensor).any(dim=-1)
 
-        self.batch_positions_tensor = wrap_positions_triclinic_batched(torch.nan_to_num(self.batch_positions_tensor, nan=0), self.batch_cell_tensor)
+        self.batch_positions_tensor = torch.nan_to_num(self.batch_positions_tensor, nan=0)
 
 
 def new_calculate_neighbourlist(self, use_torch_compile: bool = True):
@@ -335,7 +336,7 @@ NeighbourList.calculate_neighbourlist = new_calculate_neighbourlist
 MaceModel.forward = new_forward
 
 device = "cuda"
-dtype = torch.float32
+dtype = torch.float64
 
 mace = torch.load("./mace_6.model", map_location=device)
 batched_energy = MaceModel(model=mace, device=device, dtype=dtype, compute_stress=False, compute_forces=False)
