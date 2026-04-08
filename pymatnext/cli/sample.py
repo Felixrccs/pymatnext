@@ -405,8 +405,6 @@ def sample(args, MPI, NS_comm, walker_comm):
 
         n_att_acc = ns.walker.walk([ns.local_configs[k].atoms for k in xi_walk], 20, ns.max_val, ns.local_configs[0].step_size['gmc'])
 
-        #for k, idx in enumerate(xi_walk):
-        #    ns.local_configs[idx].atoms = atoms[k]
 
         acceptance.append(n_att_acc)
 

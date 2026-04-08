@@ -1,5 +1,6 @@
 import torch 
 import torch_sim as ts
+import glob, sys
 from torch_sim.models.mace import MaceModel
 from torch.nn.utils.rnn import pad_sequence
 
@@ -84,12 +85,12 @@ def new_forward(self, state: ts.SimState | ts.typing.StateDict) -> dict[str, tor
         # Todo: check cutoff for collisions
         at_numbers = torch.sum(sim_state.atomic_numbers[edge_index].T,dim =1)
         i_j_cutoff = torch.zeros_like(at_numbers,dtype=torch.float32)
+        i_j_cutoff[at_numbers == 158] = 1.7
         i_j_cutoff[at_numbers == 58] = 1.7
-        i_j_cutoff[at_numbers == 37] = 1.3
-        i_j_cutoff[at_numbers == 16] = 0.9
         collision = d<i_j_cutoff
-        _, split_len = torch.unique(config_idx, sorted=True, return_counts=True)
-        sys_collisions = torch.sum(pad_sequence(
+        sys_ids, split_len = torch.unique(config_idx, sorted=True, return_counts=True)
+        sys_collisions = torch.ones(sim_state.n_systems, dtype=torch.bool)
+        sys_collisions[sys_ids] = torch.sum(pad_sequence(
             torch.split(collision, tuple(split_len)),
             batch_first=True,
             padding_value=False,
@@ -98,7 +99,7 @@ def new_forward(self, state: ts.SimState | ts.typing.StateDict) -> dict[str, tor
 
 
         # Head for whole batch
-        head = torch.ones(self.n_systems, device=self.device, dtype=torch.int32)
+        # head = torch.ones(self.n_systems, device=self.device, dtype=torch.int32)
 
 
         # Get model output
@@ -113,7 +114,7 @@ def new_forward(self, state: ts.SimState | ts.typing.StateDict) -> dict[str, tor
                 edge_index=edge_index,
                 unit_shifts=unit_shifts,
                 shifts=shifts,
-                head=head,
+                # head=head,
             ),
             compute_force=self.compute_forces,
             compute_stress=self.compute_stress,
@@ -338,7 +339,14 @@ MaceModel.forward = new_forward
 device = "cuda"
 dtype = torch.float64
 
-mace = torch.load("./mace_6.model", map_location=device)
+txt_files = glob.glob("../*.model")
+if len(txt_files) > 1:
+    ValueError(f"There are too many mace models: {txt_files}")
+else:
+    print(txt_files)
+    mace = torch.load(txt_files[0], map_location=device)
+
+
 batched_energy = MaceModel(model=mace, device=device, dtype=dtype, compute_stress=False, compute_forces=False)
 batched_forces = MaceModel(model=mace, device=device, dtype=dtype, compute_stress=False, compute_forces=True)
 

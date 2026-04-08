@@ -268,7 +268,7 @@ class NS:
                 self.local_configs.append(self.comm.recv(source=0, tag=15 + config_i))
 
         models = self.get_calculator()
-        self.walker = torch_walker(params_configs['limit'], model=models[1], E_model=models[0], atoms=self.local_configs[0].atoms)
+        self.walker = torch_walker(model=models[1], E_model=models[0], atoms=self.local_configs[0].atoms)
         
         # batch inital calculations to spare atoms
         for atoms_ids in np.array_split(np.arange(self.n_configs_global),self.n_configs_global//40):
