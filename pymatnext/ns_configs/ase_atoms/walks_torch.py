@@ -383,7 +383,8 @@ class torch_walker:
             moves = ['gmc','pos','updown','side','id']
         else:
             moves = ['gmc','pos','updown','side']
-
+        moves = ['gmc', 'pos']
+        print(moves)
         self.moves = [possible_moves[i] for i in moves]
         self.prop = torch.tensor([move_propability[i] for i in moves], dtype=self.model.dtype, device=self.model.device)
         self.len = [move_len[i] for i in moves]
@@ -414,7 +415,8 @@ class torch_walker:
         xy = tmp.positions[np.where(tmp.positions[:,2]< 1.)[0]]
         
 
-        print("side steps", xy)
+        print("side steps", xy, len(xy))
+        self.at_per_layer = len(xy)
         
 
         return torch.tensor(xy, dtype=self.model.dtype, device=self.model.device)
@@ -443,7 +445,7 @@ class torch_walker:
         xydown[:,2] *= -1
         shifts = np.concatenate([xyup,xydown])
 
-        print("up_down_steps",shifts)
+        print("up_down_steps",shifts, len(shifts))
         
 
         return torch.tensor(shifts, dtype=self.model.dtype, device=self.model.device)
@@ -597,7 +599,7 @@ class torch_walker:
             state.tags,
             device=self.model.device,
         )
-        positions[idx] += self.xy_shift[torch.randint(1, 16, (state.n_systems,))]
+        positions[idx] += self.xy_shift[torch.randint(1, self.at_per_layer, (state.n_systems,))]
 
         results = self.E_model(
             dict(
@@ -638,7 +640,7 @@ class torch_walker:
             state.tags,
             device=self.model.device,
         )
-        positions[idx] += self.xyz_shift[torch.randint(0, 16 * 2, (state.n_systems,))]
+        positions[idx] += self.xyz_shift[torch.randint(0, self.at_per_layer * 2, (state.n_systems,))]
         reflect_z(
             positions=positions, tags=state.tags, lower=self.lower, upper=self.upper
         )

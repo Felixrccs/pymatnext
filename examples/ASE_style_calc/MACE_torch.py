@@ -88,12 +88,19 @@ def new_forward(self, state: ts.SimState | ts.typing.StateDict) -> dict[str, tor
         i_j_cutoff[at_numbers == 37] = 1.3
         i_j_cutoff[at_numbers == 16] = 0.9
         collision = d<i_j_cutoff
-        _, split_len = torch.unique(config_idx, sorted=True, return_counts=True)
-        sys_collisions = torch.sum(pad_sequence(
+        sys_ids, split_len = torch.unique(config_idx, sorted=True, return_counts=True)
+        sys_collisions = torch.ones(sim_state.n_systems, dtype=torch.bool)
+        sys_collisions[sys_ids] = torch.sum(pad_sequence(
             torch.split(collision, tuple(split_len)),
             batch_first=True,
             padding_value=False,
         ), dim=1)== 0
+        # _, split_len = torch.unique(config_idx, sorted=True, return_counts=True)
+        # sys_collisions = torch.sum(pad_sequence(
+        #     torch.split(collision, tuple(split_len)),
+        #     batch_first=True,
+        #     padding_value=False,
+        # ), dim=1)== 0
 
 
 
